@@ -1,7 +1,7 @@
 {
   "name": "gallery-bot-3xui",
-  "version": "1.0.0",
-  "description": "Telegram Gallery Downloader Bot — integrated with 3x-ui & Xray (VLESS proxy support)",
+  "version": "1.1.0",
+  "description": "Telegram Gallery Downloader Bot — integrated with 3x-ui & Xray (VLESS proxy support) + YouTube downloader",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -18,7 +18,9 @@
     "3x-ui",
     "xray",
     "vless",
-    "proxy"
+    "proxy",
+    "youtube",
+    "yt-dlp"
   ],
   "author": "ali hosseini",
   "license": "MIT",
