@@ -1,0 +1,41 @@
+{
+  "name": "gallery-bot-3xui",
+  "version": "1.0.0",
+  "description": "Telegram Gallery Downloader Bot — integrated with 3x-ui & Xray (VLESS proxy support)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "gallery",
+    "scraper",
+    "jsdom",
+    "downloader",
+    "zip",
+    "3x-ui",
+    "xray",
+    "vless",
+    "proxy"
+  ],
+  "author": "ali hosseini",
+  "license": "MIT",
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "express": "^4.18.2",
+    "dotenv": "^16.4.1",
+    "axios": "^1.6.7",
+    "jsdom": "^24.0.0",
+    "archiver": "^7.0.1",
+    "socks-proxy-agent": "^8.0.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}
