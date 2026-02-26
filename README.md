@@ -1,6 +1,22 @@
 # Gallery Downloader Bot — 3x-ui Edition
 
-Telegram bot for downloading gallery images, integrated with **3x-ui** panel for proxy support.
+Telegram bot for downloading gallery images **and YouTube videos**, integrated with **3x-ui** panel for proxy support.
+
+## Features
+
+🖼 **Gallery Downloader**
+- Extract images from multiple gallery sites
+- Automatic site detection with fallback strategies
+- Download images in parallel
+- Package into ZIP files with direct download links
+
+🎬 **YouTube Downloader**
+- Download YouTube videos up to 1080p
+- Quality selection with file size preview
+- Direct download links (no compression)
+- Video + audio merged automatically
+
+---
 
 ## Architecture
 
@@ -124,7 +140,13 @@ SSL_KEY  = /path/to/key.pem    (or .key — the private key file)
 bash <(curl -Ls https://raw.githubusercontent.com/ali934h/gallery-bot-3xui/main/install.sh)
 ```
 
-The installer will ask for:
+The installer will:
+- Install Node.js, PM2, yt-dlp, ffmpeg
+- Clone the bot repository
+- Configure environment variables
+- Start the bot with PM2
+
+You'll be asked for:
 - Telegram Bot Token
 - Bot domain (separate from 3x-ui domain!)
 - SSL certificate paths
@@ -132,6 +154,32 @@ The installer will ask for:
 - Allowed user IDs (optional)
 - Download concurrency
 - Downloads directory
+
+---
+
+## Usage
+
+### Gallery Downloader
+
+1. Send one or more gallery URLs (one per line)
+2. Choose a name for the ZIP archive
+3. Tap "Start Download" and wait
+4. Receive your download link
+
+**Officially supported sites:**
+- See `src/config/siteStrategies.json` for full list
+- Auto-detection works for similar gallery sites
+
+### YouTube Downloader
+
+1. Send a YouTube video URL
+   - `https://www.youtube.com/watch?v=...`
+   - `https://youtu.be/...`
+2. Choose quality (360p, 480p, 720p, or 1080p)
+3. Wait for download (progress shown)
+4. Receive your download link
+
+**Note:** Videos include both video and audio tracks merged into MP4 format.
 
 ---
 
@@ -154,6 +202,8 @@ Each site strategy in `src/config/siteStrategies.json` has a `useProxy` flag:
 
 When `useProxy: true`, the bot routes traffic through `socks5://user:pass@127.0.0.1:1080` — the `mixed` inbound you created in 3x-ui.
 
+**YouTube downloads:** Currently use direct connection (no proxy). You can modify `src/downloaders/ytdlpDownloader.js` to add proxy support if needed.
+
 ---
 
 ## Troubleshooting
@@ -175,6 +225,12 @@ curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
 pm2 logs gallery-bot
 ```
 
+### Check yt-dlp
+```bash
+yt-dlp --version
+yt-dlp --update  # update to latest version
+```
+
 ---
 
 ## Useful Commands
@@ -186,4 +242,17 @@ pm2 stop gallery-bot           # stop
 pm2 restart gallery-bot \      # restart with new env vars
   --update-env
 systemctl status x-ui          # check 3x-ui status
+yt-dlp --version               # check yt-dlp version
 ```
+
+---
+
+## File Management
+
+Use `/files` command in Telegram to:
+- View all downloaded files (ZIP + MP4)
+- Download individual files
+- Delete files
+- Bulk delete all files
+
+Files are stored in the directory you specified during installation (default: `/root/gallery-downloads`).
