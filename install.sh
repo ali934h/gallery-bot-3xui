@@ -153,8 +153,18 @@ read -r CONFIRM
 log "Updating package list..."
 apt-get update -qq
 
-log "Installing dependencies (curl, git, unzip)..."
-apt-get install -y -qq curl git unzip
+log "Installing dependencies (curl, git, unzip, python3, ffmpeg)..."
+apt-get install -y -qq curl git unzip python3 python3-pip ffmpeg
+
+# ── yt-dlp ────────────────────────────────────────────────────────────────────────────────
+if command -v yt-dlp &>/dev/null; then
+  log "yt-dlp already installed: $(yt-dlp --version)"
+else
+  log "Installing yt-dlp..."
+  curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+  chmod +x /usr/local/bin/yt-dlp
+  log "yt-dlp installed: $(yt-dlp --version)"
+fi
 
 # ── Node.js ───────────────────────────────────────────────────────────────────────────────
 if command -v node &>/dev/null; then
@@ -258,9 +268,14 @@ echo -e "  Downloads   : ${DOWNLOADS_DIR}"
 echo -e "  Download URL: ${DOWNLOAD_BASE_URL}"
 echo -e "  Proxy       : ${PROXY_URL:-disabled}"
 echo ""
+echo -e "  Features:"
+echo -e "    🖼 Gallery downloader (multi-site support)"
+echo -e "    🎬 YouTube downloader (up to 1080p)"
+echo ""
 echo -e "  Useful commands:"
 echo -e "    pm2 logs gallery-bot       # view live logs"
 echo -e "    pm2 restart gallery-bot    # restart bot"
 echo -e "    pm2 stop gallery-bot       # stop bot"
 echo -e "    systemctl status x-ui      # check 3x-ui status"
+echo -e "    yt-dlp --version           # check yt-dlp version"
 echo ""

@@ -11,11 +11,14 @@ const strategyEngine = require('./scrapers/strategyEngine');
 const JsdomScraper = require('./scrapers/jsdomScraper');
 const ImageDownloader = require('./downloaders/imageDownloader');
 const ZipCreator = require('./downloaders/zipCreator');
+const YouTubeHandler = require('./handlers/youtubeHandler');
 
 const STATE = {
   IDLE: 'idle',
   PROCESSING: 'processing',
-  WAITING_NAME: 'waiting_name'
+  WAITING_NAME: 'waiting_name',
+  WAITING_YOUTUBE_QUALITY: 'waiting_youtube_quality',
+  DOWNLOADING_YOUTUBE: 'downloading_youtube'
 };
 
 const UPDATE_INTERVAL_MS = 5000;
@@ -115,7 +118,7 @@ class TelegramBot {
   getDownloadedFiles() {
     if (!fs.existsSync(DOWNLOADS_DIR)) return [];
     return fs.readdirSync(DOWNLOADS_DIR)
-      .filter(f => f.endsWith('.zip'))
+      .filter(f => f.endsWith('.zip') || f.endsWith('.mp4'))
       .map(name => {
         const filePath = path.join(DOWNLOADS_DIR, name);
         const stats = fs.statSync(filePath);
@@ -128,9 +131,9 @@ class TelegramBot {
     const files = this.getDownloadedFiles();
     if (files.length === 0) return { text: 'No downloaded files found.', keyboard: null };
     const totalSize = FileManager.formatBytes(files.reduce((sum, f) => sum + f.size, 0));
-    const msg = `\u{1F5C2} Downloaded ZIP files: ${files.length} total (${totalSize})`;
+    const msg = `\u{1F5C2} Downloaded files: ${files.length} total (${totalSize})`;
     const buttons = files.map((f, i) =>
-      [Markup.button.callback(`\u{1F4C2} ${i + 1}. ${f.name.substring(0, 40)}`, `fi:${i}`)]
+      [Markup.button.callback(`${f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}'} ${i + 1}. ${f.name.substring(0, 40)}`, `fi:${i}`)]
     );
     buttons.push([Markup.button.callback('\u2699\uFE0F Manage All Files', 'manage_all')]);
     return { text: msg, keyboard: Markup.inlineKeyboard(buttons) };
@@ -190,15 +193,14 @@ class TelegramBot {
       Logger.info(`User started bot: ${ctx.from.id}`);
       ctx.reply(
         'Welcome to Gallery Downloader Bot!\n\n' +
-        'Send me one or more gallery URLs (one per line) and I will:\n' +
-        '  1. Extract all images from each gallery\n' +
-        '  2. Download them in parallel\n' +
-        '  3. Package everything into a ZIP file\n' +
-        '  4. Send you a download link\n\n' +
+        '🖼 Gallery Downloader:\n' +
+        'Send me one or more gallery URLs (one per line) and I will extract all images, download them, and create a ZIP file.\n\n' +
+        '🎬 YouTube Downloader:\n' +
+        'Send me a YouTube video URL and choose your preferred quality (up to 1080p).\n\n' +
         'Commands:\n' +
-        '  /files - Manage downloaded ZIP files\n' +
+        '  /files - Manage downloaded files\n' +
         '  /help  - How to use\n\n' +
-        'Officially supported sites:\n' +
+        'Supported gallery sites:\n' +
         strategyEngine.getSupportedDomains().map(d => `  - ${d}`).join('\n') + '\n\n' +
         '\u26a1 Auto-detection: I can also try to extract images from similar sites automatically!'
       );
@@ -207,26 +209,34 @@ class TelegramBot {
     this.bot.command('help', (ctx) => {
       ctx.reply(
         'How to use:\n\n' +
-        '1. Send one or more gallery URLs, one per line.\n\n' +
-        '2. Choose a name for the ZIP archive (or use the default).\n\n' +
-        '3. Tap "Start Download" and wait.\n\n' +
-        '4. Receive your download link.\n\n' +
+        '🖼 *Gallery Downloader:*\n' +
+        '1. Send one or more gallery URLs (one per line)\n' +
+        '2. Choose a name for the ZIP archive\n' +
+        '3. Tap "Start Download" and wait\n' +
+        '4. Receive your download link\n\n' +
+        '🎬 *YouTube Downloader:*\n' +
+        '1. Send a YouTube video URL\n' +
+        '2. Choose quality (up to 1080p)\n' +
+        '3. Wait for download\n' +
+        '4. Receive your download link\n\n' +
         'Commands:\n' +
-        '  /files  - View and manage downloaded ZIP files\n' +
+        '  /files  - View and manage files\n' +
         '  /cancel - Cancel current operation\n\n' +
-        'Officially supported sites:\n' +
+        'Supported gallery sites:\n' +
         strategyEngine.getSupportedDomains().map(d => `  - ${d}`).join('\n') + '\n\n' +
-        '\u26a1 Auto-detection: I can also try to extract images from similar sites automatically!'
+        '\u26a1 Auto-detection enabled for similar sites!',
+        { parse_mode: 'Markdown' }
       );
     });
 
     this.bot.command('cancel', (ctx) => {
       const session = this.getUserSession(ctx.from.id);
-      if (session.state === STATE.PROCESSING) {
+      if (session.state === STATE.PROCESSING || session.state === STATE.DOWNLOADING_YOUTUBE) {
         ctx.reply('A job is currently running. Please wait for it to finish.');
       } else {
         session.state = STATE.IDLE;
         session.pendingJob = null;
+        session.pendingYoutubeJob = null;
         ctx.reply('Cancelled. Ready for new URLs.');
       }
     });
@@ -236,6 +246,38 @@ class TelegramBot {
       keyboard ? ctx.reply(text, keyboard) : ctx.reply(text);
     });
 
+    // YouTube handlers
+    this.bot.action(/^yt:fmt:(.+)$/, async (ctx) => {
+      const formatId = ctx.match[1];
+      const session = this.getUserSession(ctx.from.id);
+      await YouTubeHandler.handleQualitySelection(
+        ctx,
+        formatId,
+        session,
+        DOWNLOADS_DIR,
+        DOWNLOAD_BASE_URL,
+        this.retryWithBackoff.bind(this)
+      );
+    });
+
+    this.bot.action('yt:cancel', async (ctx) => {
+      const session = this.getUserSession(ctx.from.id);
+      await ctx.answerCbQuery('Cancelled');
+      session.state = STATE.IDLE;
+      session.pendingYoutubeJob = null;
+      await ctx.editMessageText('\u274c Cancelled. Ready for new URLs.');
+    });
+
+    this.bot.action('yt:cancel_dl', async (ctx) => {
+      const session = this.getUserSession(ctx.from.id);
+      await ctx.answerCbQuery('Cancelling...');
+      if (session.abortController) {
+        session.abortController.abort();
+        Logger.info(`User ${ctx.from.id} cancelled YouTube download`);
+      }
+    });
+
+    // Gallery handlers
     this.bot.action('rename_archive', async (ctx) => {
       const session = this.getUserSession(ctx.from.id);
       await ctx.answerCbQuery();
@@ -263,7 +305,7 @@ class TelegramBot {
       await ctx.answerCbQuery('Cancelling...');
       if (session.abortController) {
         session.abortController.abort();
-        Logger.info(`User ${ctx.from.id} cancelled download`);
+        Logger.info(`User ${ctx.from.id} cancelled gallery download`);
       }
     });
 
@@ -281,8 +323,9 @@ class TelegramBot {
       const date = f.date.toISOString().slice(0, 16).replace('T', ' ');
       const downloadUrl = `${DOWNLOAD_BASE_URL}/${f.name}`;
       const meta = readMeta(f.name);
+      const icon = f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}';
       const msg = [
-        '\u{1F4C2} *File Details*', '',
+        `${icon} *File Details*`, '',
         `Name: \`${e(f.name)}\``,
         `Size: ${e(size)}`,
         `Date: ${e(date)}`, '',
@@ -371,7 +414,7 @@ class TelegramBot {
       const totalSize = FileManager.formatBytes(files.reduce((sum, f) => sum + f.size, 0));
       await ctx.answerCbQuery();
       await ctx.editMessageText(
-        `\u2699\uFE0F Manage All Files\n\nTotal: ${files.length} file(s), ${totalSize}\n\nThis will permanently delete all downloaded ZIP files.`,
+        `\u2699\uFE0F Manage All Files\n\nTotal: ${files.length} file(s), ${totalSize}\n\nThis will permanently delete all downloaded files.`,
         Markup.inlineKeyboard([
           [Markup.button.callback('\u{1F5D1} Delete ALL Files', 'confirm_del_all')],
           [Markup.button.callback('\u2B05\uFE0F Back to List', 'back_to_list')]
@@ -410,8 +453,11 @@ class TelegramBot {
 
     this.bot.on('text', async (ctx) => {
       const session = this.getUserSession(ctx.from.id);
+      const text = ctx.message.text.trim();
+
+      // Handle WAITING_NAME state
       if (session.state === STATE.WAITING_NAME) {
-        const input = ctx.message.text.trim();
+        const input = text;
         if (!VALID_NAME_REGEX.test(input)) {
           ctx.reply('\u274C Invalid name. Only letters, numbers, - _ . are allowed.\n\nPlease type a valid name:');
           return;
@@ -431,16 +477,33 @@ class TelegramBot {
         );
         return;
       }
-      if (session.state === STATE.PROCESSING) {
+
+      // Prevent new requests if processing
+      if (session.state === STATE.PROCESSING || session.state === STATE.DOWNLOADING_YOUTUBE) {
         ctx.reply('Already processing a job. Please wait until it finishes.');
         return;
       }
-      const lines = ctx.message.text
+
+      // Check if YouTube URL
+      if (YouTubeHandler.isYouTubeUrl(text)) {
+        await YouTubeHandler.handleYouTubeUrl(
+          ctx,
+          text,
+          session,
+          DOWNLOADS_DIR,
+          DOWNLOAD_BASE_URL,
+          this.retryWithBackoff.bind(this)
+        );
+        return;
+      }
+
+      // Otherwise treat as gallery URLs
+      const lines = text
         .split('\n')
         .map(l => l.trim())
         .filter(l => l.startsWith('http'));
       if (lines.length === 0) {
-        ctx.reply('No valid URLs found.\n\nPlease send gallery URLs starting with http:// or https://, one per line.');
+        ctx.reply('No valid URLs found.\n\nPlease send:\n  - Gallery URLs (one per line)\n  - YouTube video URL');
         return;
       }
       const defaultName = this.buildDefaultName(lines);
@@ -453,7 +516,12 @@ class TelegramBot {
       Logger.error('Unhandled bot error', { error: err.message, user: ctx.from?.id });
       ctx.reply('An unexpected error occurred. Please try again or send /start to reset.').catch(() => {});
       const session = this.getUserSession(ctx.from?.id);
-      if (session) { session.state = STATE.IDLE; session.pendingJob = null; session.abortController = null; }
+      if (session) {
+        session.state = STATE.IDLE;
+        session.pendingJob = null;
+        session.pendingYoutubeJob = null;
+        session.abortController = null;
+      }
     });
   }
 
