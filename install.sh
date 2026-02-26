@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================
 #  Gallery Downloader Bot — 3x-ui Edition
-#  Requires: 3x-ui already installed with a SOCKS inbound
+#  Requires: 3x-ui already installed with a 'mixed' inbound
 #            on 127.0.0.1:1080
 #
 #  Usage:
@@ -36,31 +36,31 @@ if [[ $EUID -ne 0 ]]; then
   err "This script must be run as root (sudo -i)"
 fi
 
-# ── Pre-flight: check 3x-ui SOCKS inbound ──────────────────────────────────────────────
+# ── Pre-flight ────────────────────────────────────────────────────────────────────────────
 echo -e "${YELLOW}═══════════════════════════════════════════════${NC}"
 echo -e "${YELLOW}  Pre-flight Check${NC}"
 echo -e "${YELLOW}═══════════════════════════════════════════════${NC}"
 echo ""
 echo -e "This installer assumes you have:"
 echo -e "  ✅ 3x-ui already installed and running"
-echo -e "  ✅ A SOCKS inbound created in 3x-ui panel:"
-echo -e "      Protocol : SOCKS"
-echo -e "      Listen IP: 127.0.0.1"
-echo -e "      Port     : 1080"
-echo -e "      (no auth required)"
+echo -e "  ✅ A 'mixed' inbound created in 3x-ui panel:"
+echo -e "      Protocol  : mixed"
+echo -e "      Listen IP : 127.0.0.1"
+echo -e "      Port      : 1080"
+echo -e "      Password  : enabled (with username & password)"
 echo ""
 echo -e "  ✅ A separate domain for this bot (different from 3x-ui domain)"
 echo -e "  ✅ SSL certificate for the bot domain"
 echo ""
 
-# Test SOCKS proxy availability
+# Test proxy availability
 PROXY_AVAILABLE=false
 if ss -tlnp 2>/dev/null | grep -q '127.0.0.1:1080'; then
-  log "SOCKS proxy detected on 127.0.0.1:1080 ✓"
+  log "Proxy detected on 127.0.0.1:1080 ✓"
   PROXY_AVAILABLE=true
 else
-  warn "SOCKS proxy NOT detected on 127.0.0.1:1080"
-  warn "Make sure you created a SOCKS inbound in 3x-ui panel."
+  warn "Proxy NOT detected on 127.0.0.1:1080"
+  warn "Make sure you created a 'mixed' inbound in 3x-ui panel."
   echo ""
   ask "Continue anyway? [y/N]:"
   read -r CONTINUE_ANYWAY
@@ -110,13 +110,28 @@ DOWNLOADS_DIR=${DOWNLOADS_DIR:-/root/gallery-downloads}
 
 DOWNLOAD_BASE_URL="${WEBHOOK_DOMAIN}/downloads"
 
-# Proxy URL — always pointing to 3x-ui SOCKS inbound
-if [[ "$PROXY_AVAILABLE" == "true" ]]; then
-  PROXY_URL="socks5://127.0.0.1:1080"
+# ── Proxy config ──────────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${YELLOW}Proxy Configuration (3x-ui mixed inbound)${NC}"
+echo ""
+
+ask "Did you enable 'Password' in the mixed inbound? [Y/n]:"
+read -r HAS_AUTH
+
+if [[ ! "$HAS_AUTH" =~ ^[Nn]$ ]]; then
+  ask "Proxy username (from 3x-ui inbound):"
+  read -r PROXY_USER
+  ask "Proxy password (from 3x-ui inbound):"
+  read -r PROXY_PASS
+  if [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]]; then
+    PROXY_URL="socks5://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080"
+  else
+    PROXY_URL="socks5://127.0.0.1:1080"
+    warn "Username or password empty — using without auth."
+  fi
 else
-  ask "SOCKS proxy URL (default: socks5://127.0.0.1:1080, leave empty to disable):"
-  read -r PROXY_URL
-  PROXY_URL=${PROXY_URL:-"socks5://127.0.0.1:1080"}
+  PROXY_URL="socks5://127.0.0.1:1080"
+  log "Using proxy without authentication."
 fi
 
 echo ""
@@ -207,7 +222,7 @@ ALLOWED_USERS=${ALLOWED_USERS}
 # Concurrency
 DOWNLOAD_CONCURRENCY=${DOWNLOAD_CONCURRENCY}
 
-# Proxy — Xray SOCKS5 inbound from 3x-ui
+# Proxy — Xray mixed inbound from 3x-ui
 PROXY_URL=${PROXY_URL}
 EOF
 

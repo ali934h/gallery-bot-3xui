@@ -5,17 +5,17 @@ Telegram bot for downloading gallery images, integrated with **3x-ui** panel for
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│                   Server                    │
-│                                             │
-│  3x-ui panel  (your-vpn-domain.com)         │
-│    └── Xray                                 │
-│          ├── Inbound: VLESS (any port)      │  ← for VPN users
-│          └── Inbound: SOCKS 127.0.0.1:1080 │  ← for this bot
-│                                             │
-│  Gallery Bot  (your-bot-domain.com:443)     │
-│    └── PROXY_URL=socks5://127.0.0.1:1080   │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                       Server                        │
+│                                                     │
+│  3x-ui panel  (your-vpn-domain.com)                 │
+│    └── Xray                                         │
+│          ├── Inbound: VLESS/Trojan (any port)       │  ← for VPN users
+│          └── Inbound: mixed 127.0.0.1:1080          │  ← for this bot
+│                                                     │
+│  Gallery Bot  (your-bot-domain.com:443)             │
+│    └── PROXY_URL=socks5://user:pass@127.0.0.1:1080  │
+└─────────────────────────────────────────────────────┘
 ```
 
 > ⚠️ **The bot domain MUST be different from the 3x-ui domain.**  
@@ -29,18 +29,24 @@ Telegram bot for downloading gallery images, integrated with **3x-ui** panel for
 
 Install [3x-ui](https://github.com/MHSanaei/3x-ui) on your server with your preferred settings.
 
-### Step 2 — Create SOCKS Inbound in 3x-ui panel
+### Step 2 — Create a `mixed` inbound in 3x-ui panel
 
-In the 3x-ui web panel, create a new inbound:
+In the 3x-ui web panel, go to **Inbounds → Add Inbound**:
 
 | Field       | Value           |
 |-------------|-----------------|
-| Protocol    | SOCKS           |
+| Protocol    | `mixed`         |
 | Listen IP   | `127.0.0.1`     |
 | Port        | `1080`          |
-| Auth        | None (no auth)  |
+| Password    | Enabled ✅      |
+| Username    | (any value)     |
+| Password    | (any value)     |
 
-> This inbound is **local only** (127.0.0.1) — not exposed to the internet.
+> This inbound is **local only** (127.0.0.1) — not exposed to the internet.  
+> Note your username and password — you will need them during installation.
+
+> 💡 **Why `mixed`?** The 3x-ui panel may not show `socks` as a protocol option.  
+> The `mixed` protocol supports both SOCKS5 and HTTP proxy on the same port.
 
 ### Step 3 — Prepare bot domain & SSL
 
@@ -60,6 +66,7 @@ The installer will ask for:
 - Telegram Bot Token
 - Bot domain (separate from 3x-ui domain!)
 - SSL certificate paths
+- Proxy username & password (from the mixed inbound you created)
 - Allowed user IDs (optional)
 - Download concurrency
 - Downloads directory
@@ -81,7 +88,7 @@ Each site strategy in `src/config/siteStrategies.json` has a `useProxy` flag:
 }
 ```
 
-When `useProxy: true`, the bot routes traffic through `socks5://127.0.0.1:1080` — the SOCKS inbound you created in 3x-ui.
+When `useProxy: true`, the bot routes traffic through `socks5://user:pass@127.0.0.1:1080` — the `mixed` inbound you created in 3x-ui.
 
 ---
 
