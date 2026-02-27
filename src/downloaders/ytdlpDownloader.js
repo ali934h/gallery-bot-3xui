@@ -20,7 +20,8 @@ class YtdlpDownloader {
     return new Promise((resolve, reject) => {
       const args = [
         '--dump-json',
-        '--no-warnings'
+        '--no-warnings',
+        '--js-runtime', 'node'
       ];
 
       // Add cookies if available
@@ -132,6 +133,7 @@ class YtdlpDownloader {
         '--merge-output-format', 'mp4',
         '--no-warnings',
         '--newline',
+        '--js-runtime', 'node',
         '-o', `${outputPath}.%(ext)s`
       ];
 
