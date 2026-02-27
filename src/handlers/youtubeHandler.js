@@ -11,6 +11,7 @@ const FileManager = require('../utils/fileManager');
 const YtdlpDownloader = require('../downloaders/ytdlpDownloader');
 
 const YOUTUBE_REGEX = /(?:https?:\/\/)?(?:www\.|m\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+const UPDATE_INTERVAL_MS = 5000; // 5 seconds - same as gallery downloads
 
 class YouTubeHandler {
   /**
@@ -129,6 +130,7 @@ class YouTubeHandler {
 
     const msgId = ctx.callbackQuery.message.message_id;
     let lastProgress = 0;
+    let lastUpdateTime = 0;
 
     try {
       // Generate output filename
@@ -144,8 +146,13 @@ class YouTubeHandler {
         outputPath,
         (percent) => {
           const rounded = Math.floor(percent);
-          if (rounded !== lastProgress && rounded % 10 === 0) {
+          const now = Date.now();
+          
+          // Update only if: progress changed by 10% AND at least 5 seconds passed
+          if (rounded !== lastProgress && rounded % 10 === 0 && now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
             lastProgress = rounded;
+            lastUpdateTime = now;
+            
             retryFn(() =>
               ctx.telegram.editMessageText(
                 ctx.chat.id,
