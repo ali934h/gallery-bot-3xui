@@ -164,19 +164,19 @@ class YouTubeHandler {
       const fileName = path.basename(finalPath);
       const downloadUrl = `${downloadBaseUrl}/${fileName}`;
 
-      // Send success message with plain URL (no markdown escaping for URL)
+      // Send success message using HTML to preserve underscores
       const successMsg = [
-        '✅ *Download Complete!*',
+        '✅ <b>Download Complete!</b>',
         '',
-        `📹 ${this.escapeMarkdown(job.title)}`,
+        `📹 ${this.escapeHtml(job.title)}`,
         `📊 Quality: ${selectedFormat.quality} (${selectedFormat.ext.toUpperCase()})`,
         `💾 Size: ${fileSize}`,
         '',
-        'Link:',
-        downloadUrl
+        '<b>Link:</b>',
+        `<code>${this.escapeHtml(downloadUrl)}</code>`
       ].join('\n');
 
-      await retryFn(() => ctx.reply(successMsg, { parse_mode: 'Markdown', disable_web_page_preview: true }));
+      await retryFn(() => ctx.reply(successMsg, { parse_mode: 'HTML', disable_web_page_preview: true }));
       await retryFn(() => ctx.telegram.deleteMessage(ctx.chat.id, msgId)).catch(() => {});
 
       Logger.info(`YouTube download complete: ${fileName}`);
@@ -213,6 +213,17 @@ class YouTubeHandler {
    */
   static escapeMarkdown(text) {
     return String(text).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  static escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }
 
