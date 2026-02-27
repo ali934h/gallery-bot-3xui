@@ -18,7 +18,8 @@ const STATE = {
   PROCESSING: 'processing',
   WAITING_NAME: 'waiting_name',
   WAITING_YOUTUBE_QUALITY: 'waiting_youtube_quality',
-  DOWNLOADING_YOUTUBE: 'downloading_youtube'
+  DOWNLOADING_YOUTUBE: 'downloading_youtube',
+  WAITING_COOKIE_FILE: 'waiting_cookie_file'
 };
 
 const UPDATE_INTERVAL_MS = 5000;
@@ -29,6 +30,7 @@ const userSessions = new Map();
 const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(process.cwd(), 'downloads');
 const DOWNLOAD_BASE_URL = process.env.DOWNLOAD_BASE_URL || 'http://localhost:3000/downloads';
 const DOWNLOAD_CONCURRENCY = parseInt(process.env.DOWNLOAD_CONCURRENCY) || 5;
+const COOKIE_PATH = path.join(process.cwd(), 'cookies.txt');
 
 const ALLOWED_USERS = new Set(
   (process.env.ALLOWED_USERS || '')
@@ -163,6 +165,8 @@ class TelegramBot {
         { command: 'start', description: 'Start the bot' },
         { command: 'help', description: 'How to use this bot' },
         { command: 'files', description: 'View and manage downloaded files' },
+        { command: 'setcookie', description: 'Upload YouTube cookies for authentication' },
+        { command: 'removecookie', description: 'Remove stored YouTube cookies' },
         { command: 'cancel', description: 'Cancel current operation' }
       ]);
       Logger.info('Bot commands menu set successfully');
@@ -191,14 +195,20 @@ class TelegramBot {
       const session = this.getUserSession(ctx.from.id);
       session.state = STATE.IDLE;
       Logger.info(`User started bot: ${ctx.from.id}`);
+      
+      const cookieStatus = fs.existsSync(COOKIE_PATH) ? '\u2705 Cookie active' : '\u274c No cookie';
+      
       ctx.reply(
         'Welcome to Gallery Downloader Bot!\n\n' +
-        '🖼 Gallery Downloader:\n' +
+        '\ud83d\uddbc Gallery Downloader:\n' +
         'Send me one or more gallery URLs (one per line) and I will extract all images, download them, and create a ZIP file.\n\n' +
-        '🎬 YouTube Downloader:\n' +
+        '\ud83c\udfac YouTube Downloader:\n' +
         'Send me a YouTube video URL and choose your preferred quality (up to 1080p).\n\n' +
+        `\ud83c\udf6a Cookie status: ${cookieStatus}\n\n` +
         'Commands:\n' +
         '  /files - Manage downloaded files\n' +
+        '  /setcookie - Upload YouTube cookies\n' +
+        '  /removecookie - Remove cookies\n' +
         '  /help  - How to use\n\n' +
         'Supported gallery sites:\n' +
         strategyEngine.getSupportedDomains().map(d => `  - ${d}`).join('\n') + '\n\n' +
@@ -209,24 +219,68 @@ class TelegramBot {
     this.bot.command('help', (ctx) => {
       ctx.reply(
         'How to use:\n\n' +
-        '🖼 *Gallery Downloader:*\n' +
+        '\ud83d\uddbc *Gallery Downloader:*\n' +
         '1. Send one or more gallery URLs (one per line)\n' +
         '2. Choose a name for the ZIP archive\n' +
         '3. Tap "Start Download" and wait\n' +
         '4. Receive your download link\n\n' +
-        '🎬 *YouTube Downloader:*\n' +
+        '\ud83c\udfac *YouTube Downloader:*\n' +
         '1. Send a YouTube video URL\n' +
         '2. Choose quality (up to 1080p)\n' +
         '3. Wait for download\n' +
         '4. Receive your download link\n\n' +
+        '\ud83c\udf6a *Cookie Setup (if YouTube blocks):*\n' +
+        '1. Send /setcookie command\n' +
+        '2. Upload cookies.txt file as Document\n' +
+        '3. Try downloading again\n\n' +
+        '*How to get cookies.txt:*\n' +
+        '\u2022 Chrome: Install "Get cookies.txt LOCALLY"\n' +
+        '\u2022 Firefox: Install "cookies.txt" extension\n' +
+        '\u2022 Visit youtube.com and login\n' +
+        '\u2022 Click extension and export cookies\n\n' +
         'Commands:\n' +
         '  /files  - View and manage files\n' +
+        '  /setcookie - Upload cookies\n' +
+        '  /removecookie - Remove cookies\n' +
         '  /cancel - Cancel current operation\n\n' +
         'Supported gallery sites:\n' +
         strategyEngine.getSupportedDomains().map(d => `  - ${d}`).join('\n') + '\n\n' +
         '\u26a1 Auto-detection enabled for similar sites!',
         { parse_mode: 'Markdown' }
       );
+    });
+
+    this.bot.command('setcookie', (ctx) => {
+      const session = this.getUserSession(ctx.from.id);
+      session.state = STATE.WAITING_COOKIE_FILE;
+      
+      ctx.reply(
+        '\ud83c\udf6a Please send the cookies.txt file as a *Document*.\n\n' +
+        '\ud83d\udcd6 How to get cookies:\n\n' +
+        '*Chrome/Edge/Brave:*\n' +
+        '1\u20e3 Install extension: "Get cookies.txt LOCALLY"\n' +
+        '2\u20e3 Go to youtube.com and login\n' +
+        '3\u20e3 Click extension icon\n' +
+        '4\u20e3 Click "Export" and download file\n' +
+        '5\u20e3 Send it here as Document\n\n' +
+        '*Firefox:*\n' +
+        '1\u20e3 Install extension: "cookies.txt"\n' +
+        '2\u20e3 Go to youtube.com and login\n' +
+        '3\u20e3 Click extension icon\n' +
+        '4\u20e3 Save cookies.txt file\n' +
+        '5\u20e3 Send it here as Document',
+        { parse_mode: 'Markdown' }
+      );
+    });
+
+    this.bot.command('removecookie', (ctx) => {
+      if (fs.existsSync(COOKIE_PATH)) {
+        fs.unlinkSync(COOKIE_PATH);
+        Logger.info(`Cookie removed by user: ${ctx.from.id}`);
+        ctx.reply('\u2705 Cookie removed successfully.');
+      } else {
+        ctx.reply('\u274c No cookie found.');
+      }
     });
 
     this.bot.command('cancel', (ctx) => {
@@ -244,6 +298,52 @@ class TelegramBot {
     this.bot.command('files', (ctx) => {
       const { text, keyboard } = this.buildFilesListMessage();
       keyboard ? ctx.reply(text, keyboard) : ctx.reply(text);
+    });
+
+    // Handle document uploads (cookies)
+    this.bot.on('document', async (ctx) => {
+      const session = this.getUserSession(ctx.from.id);
+      
+      if (session.state !== STATE.WAITING_COOKIE_FILE) {
+        return;
+      }
+      
+      const document = ctx.message.document;
+      
+      if (!document.file_name.endsWith('.txt')) {
+        await ctx.reply('\u274c Please send only .txt files.');
+        return;
+      }
+      
+      try {
+        const file = await ctx.telegram.getFile(document.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${ctx.telegram.token}/${file.file_path}`;
+        
+        const response = await fetch(fileUrl);
+        const content = await response.text();
+        
+        if (!content.includes('youtube.com') && !content.includes('google.com')) {
+          await ctx.reply('\u274c Invalid cookie file. Must contain YouTube/Google cookies.');
+          session.state = STATE.IDLE;
+          return;
+        }
+        
+        fs.writeFileSync(COOKIE_PATH, content, 'utf8');
+        Logger.info(`Cookie uploaded by user: ${ctx.from.id}`);
+        
+        await ctx.reply(
+          '\u2705 Cookie saved successfully!\n\n' +
+          'You can now send YouTube URLs to download videos.\n\n' +
+          'To remove cookies later, use /removecookie'
+        );
+        
+        session.state = STATE.IDLE;
+        
+      } catch (error) {
+        Logger.error('Cookie upload error', { error: error.message, user: ctx.from.id });
+        await ctx.reply(`\u274c Error saving cookie: ${error.message}`);
+        session.state = STATE.IDLE;
+      }
     });
 
     // YouTube handlers
@@ -643,6 +743,9 @@ class TelegramBot {
     Logger.info('Bot initialized successfully');
     if (ALLOWED_USERS.size > 0) {
       Logger.info(`Whitelist active: ${[...ALLOWED_USERS].join(', ')}`);
+    }
+    if (fs.existsSync(COOKIE_PATH)) {
+      Logger.info('YouTube cookies loaded from cookies.txt');
     }
   }
 

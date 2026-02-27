@@ -5,7 +5,10 @@
 
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const Logger = require('../utils/logger');
+
+const COOKIE_PATH = path.join(process.cwd(), 'cookies.txt');
 
 class YtdlpDownloader {
   /**
@@ -17,9 +20,16 @@ class YtdlpDownloader {
     return new Promise((resolve, reject) => {
       const args = [
         '--dump-json',
-        '--no-warnings',
-        url
+        '--no-warnings'
       ];
+
+      // Add cookies if available
+      if (fs.existsSync(COOKIE_PATH)) {
+        args.push('--cookies', COOKIE_PATH);
+        Logger.info('Using cookies for YouTube authentication');
+      }
+
+      args.push(url);
 
       const proc = spawn('yt-dlp', args);
       let stdout = '';
@@ -36,6 +46,16 @@ class YtdlpDownloader {
       proc.on('close', (code) => {
         if (code !== 0) {
           Logger.error('Failed to get video info', { stderr });
+          
+          // Check for bot detection or authentication error
+          if (stderr.includes('Sign in to confirm') || stderr.includes('bot')) {
+            return reject(new Error(
+              'YouTube requires authentication. Please:\n' +
+              '1. Send /setcookie command\n' +
+              '2. Upload your cookies.txt file'
+            ));
+          }
+          
           return reject(new Error('Failed to fetch video information'));
         }
 
@@ -112,9 +132,16 @@ class YtdlpDownloader {
         '--merge-output-format', 'mp4',
         '--no-warnings',
         '--newline',
-        '-o', `${outputPath}.%(ext)s`,
-        url
+        '-o', `${outputPath}.%(ext)s`
       ];
+
+      // Add cookies if available
+      if (fs.existsSync(COOKIE_PATH)) {
+        args.push('--cookies', COOKIE_PATH);
+        Logger.info('Using cookies for YouTube download');
+      }
+
+      args.push(url);
 
       Logger.info(`Starting yt-dlp download: format=${formatId}`);
 
@@ -171,6 +198,16 @@ class YtdlpDownloader {
 
         if (code !== 0) {
           Logger.error('yt-dlp download failed', { code, stderr });
+          
+          // Check for authentication error
+          if (stderr.includes('Sign in to confirm') || stderr.includes('bot')) {
+            return reject(new Error(
+              'YouTube requires authentication. Please:\n' +
+              '1. Send /setcookie command\n' +
+              '2. Upload your cookies.txt file'
+            ));
+          }
+          
           return reject(new Error('Video download failed'));
         }
 
