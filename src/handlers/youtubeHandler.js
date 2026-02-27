@@ -164,7 +164,7 @@ class YouTubeHandler {
       const fileName = path.basename(finalPath);
       const downloadUrl = `${downloadBaseUrl}/${fileName}`;
 
-      // Send success message
+      // Send success message with plain URL (no markdown escaping for URL)
       const successMsg = [
         '✅ *Download Complete!*',
         '',
@@ -172,9 +172,8 @@ class YouTubeHandler {
         `📊 Quality: ${selectedFormat.quality} (${selectedFormat.ext.toUpperCase()})`,
         `💾 Size: ${fileSize}`,
         '',
-        '```',
-        this.escapeMarkdown(downloadUrl),
-        '```'
+        'Link:',
+        downloadUrl
       ].join('\n');
 
       await retryFn(() => ctx.reply(successMsg, { parse_mode: 'Markdown', disable_web_page_preview: true }));
