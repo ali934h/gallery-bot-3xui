@@ -129,8 +129,8 @@ class YouTubeHandler {
     );
 
     const msgId = ctx.callbackQuery.message.message_id;
-    let lastProgress = 0;
     let lastUpdateTime = 0;
+    let currentProgress = 0;
 
     try {
       // Generate output filename
@@ -145,12 +145,11 @@ class YouTubeHandler {
         formatId,
         outputPath,
         (percent) => {
-          const rounded = Math.floor(percent);
+          currentProgress = Math.floor(percent);
           const now = Date.now();
           
-          // Update only if: progress changed by 10% AND at least 5 seconds passed
-          if (rounded !== lastProgress && rounded % 10 === 0 && now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
-            lastProgress = rounded;
+          // Update every 5 seconds, regardless of progress percentage
+          if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
             lastUpdateTime = now;
             
             retryFn(() =>
@@ -158,7 +157,7 @@ class YouTubeHandler {
                 ctx.chat.id,
                 msgId,
                 null,
-                `⬇️ Downloading: ${this.escapeHtml(job.title)}\n\nQuality: ${selectedFormat.quality}\nProgress: ${rounded}%`,
+                `⬇️ Downloading: ${this.escapeHtml(job.title)}\n\nQuality: ${selectedFormat.quality}\nProgress: ${currentProgress}%`,
                 {
                   parse_mode: 'HTML',
                   ...Markup.inlineKeyboard([
