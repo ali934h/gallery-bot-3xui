@@ -13,6 +13,7 @@ Telegram bot for downloading gallery images **and YouTube videos**, integrated w
 🎬 **YouTube Downloader**
 - Download YouTube videos up to 1080p
 - Quality selection with file size preview
+- Cookie authentication for blocked content
 - Direct download links (no compression)
 - Video + audio merged automatically
 
@@ -176,10 +177,40 @@ You'll be asked for:
    - `https://www.youtube.com/watch?v=...`
    - `https://youtu.be/...`
 2. Choose quality (360p, 480p, 720p, or 1080p)
-3. Wait for download (progress shown)
+3. Wait for download (progress updates every 5 seconds)
 4. Receive your download link
 
 **Note:** Videos include both video and audio tracks merged into MP4 format.
+
+#### YouTube Cookie Setup (Optional)
+
+If YouTube blocks downloads with "Sign in to confirm you're not a bot", set up cookies:
+
+**1. Get cookies.txt from browser:**
+
+**Chrome/Edge/Brave:**
+1. Install extension: [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
+2. Go to youtube.com and login
+3. Click extension icon
+4. Click "Export" → save `cookies.txt`
+
+**Firefox:**
+1. Install extension: [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
+2. Go to youtube.com and login
+3. Click extension icon
+4. Save `cookies.txt`
+
+**2. Upload to bot:**
+
+1. Send `/setcookie` command to bot
+2. Upload `cookies.txt` file as **Document** (not as photo)
+3. Bot confirms: "Cookie saved successfully!"
+
+**3. Test:**
+
+Send a YouTube URL and check if download works.
+
+**Remove cookies:** Use `/removecookie` command
 
 ---
 
@@ -208,6 +239,16 @@ When `useProxy: true`, the bot routes traffic through `socks5://user:pass@127.0.
 
 ## Troubleshooting
 
+### YouTube: "Sign in to confirm you're not a bot"
+
+**Solution:** Upload cookies using `/setcookie` command (see YouTube Cookie Setup section above)
+
+### YouTube: "No suitable formats found"
+
+**Cause:** Video requires authentication or age verification
+
+**Solution:** Upload cookies using `/setcookie` command
+
 ### Check webhook status
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
@@ -233,6 +274,32 @@ yt-dlp --update  # update to latest version
 
 ---
 
+## Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Start the bot and see features |
+| `/help` | Show detailed usage instructions |
+| `/files` | View and manage downloaded files |
+| `/setcookie` | Upload YouTube cookies.txt |
+| `/removecookie` | Remove stored cookies |
+| `/cancel` | Cancel current operation |
+
+---
+
+## File Management
+
+Use `/files` command in Telegram to:
+- View all downloaded files (ZIP + MP4)
+- See video titles (not just filenames)
+- Download individual files
+- Delete files
+- Bulk delete all files
+
+Files are stored in the directory you specified during installation (default: `/root/gallery-downloads`).
+
+---
+
 ## Useful Commands
 
 ```bash
@@ -243,16 +310,16 @@ pm2 restart gallery-bot \      # restart with new env vars
   --update-env
 systemctl status x-ui          # check 3x-ui status
 yt-dlp --version               # check yt-dlp version
+yt-dlp --update                # update yt-dlp
 ```
 
 ---
 
-## File Management
+## Requirements
 
-Use `/files` command in Telegram to:
-- View all downloaded files (ZIP + MP4)
-- Download individual files
-- Delete files
-- Bulk delete all files
-
-Files are stored in the directory you specified during installation (default: `/root/gallery-downloads`).
+- Ubuntu 20.04+ or Debian 11+ (tested)
+- Node.js 18+ (auto-installed)
+- yt-dlp (auto-installed)
+- ffmpeg (auto-installed)
+- 3x-ui panel with mixed inbound
+- Valid SSL certificate
