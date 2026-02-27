@@ -42,23 +42,24 @@ class YouTubeHandler {
       };
       session.state = 'WAITING_YOUTUBE_QUALITY';
 
-      // Build quality selection message
+      // Build quality selection message using HTML
       const durationStr = YtdlpDownloader.formatDuration(videoInfo.duration);
       const msg = [
-        '🎬 *YouTube Video*',
+        '🎬 <b>YouTube Video</b>',
         '',
-        `Title: ${this.escapeMarkdown(videoInfo.title)}`,
-        `Duration: ${durationStr}`,
+        `<b>Title:</b> ${this.escapeHtml(videoInfo.title)}`,
+        `<b>Duration:</b> ${durationStr}`,
         '',
         'Select quality:'
       ].join('\n');
 
       const buttons = videoInfo.formats.map(fmt => {
-        const sizeStr = fmt.filesize > 0 ? FileManager.formatBytes(fmt.filesize) : '~';
-        return [Markup.button.callback(
-          `🎬 ${fmt.quality} (${fmt.ext.toUpperCase()}) - ${sizeStr}`,
-          `yt:fmt:${fmt.format_id}`
-        )];
+        let label = `🎬 ${fmt.quality} (${fmt.ext.toUpperCase()})`;
+        if (fmt.filesize > 0) {
+          const sizeStr = FileManager.formatBytes(fmt.filesize);
+          label += ` - ${sizeStr}`;
+        }
+        return [Markup.button.callback(label, `yt:fmt:${fmt.format_id}`)];
       });
       buttons.push([Markup.button.callback('❌ Cancel', 'yt:cancel')]);
 
@@ -69,7 +70,7 @@ class YouTubeHandler {
           null,
           msg,
           {
-            parse_mode: 'Markdown',
+            parse_mode: 'HTML',
             ...Markup.inlineKeyboard(buttons)
           }
         )
@@ -117,10 +118,13 @@ class YouTubeHandler {
 
     // Update message to show download progress
     await ctx.editMessageText(
-      `⬇️ Downloading: ${this.escapeMarkdown(job.title)}\n\nQuality: ${selectedFormat.quality}\nProgress: 0%`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('❌ Cancel Download', 'yt:cancel_dl')]
-      ])
+      `⬇️ Downloading: ${this.escapeHtml(job.title)}\n\nQuality: ${selectedFormat.quality}\nProgress: 0%`,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('❌ Cancel Download', 'yt:cancel_dl')]
+        ])
+      }
     );
 
     const msgId = ctx.callbackQuery.message.message_id;
@@ -147,10 +151,13 @@ class YouTubeHandler {
                 ctx.chat.id,
                 msgId,
                 null,
-                `⬇️ Downloading: ${this.escapeMarkdown(job.title)}\n\nQuality: ${selectedFormat.quality}\nProgress: ${rounded}%`,
-                Markup.inlineKeyboard([
-                  [Markup.button.callback('❌ Cancel Download', 'yt:cancel_dl')]
-                ])
+                `⬇️ Downloading: ${this.escapeHtml(job.title)}\n\nQuality: ${selectedFormat.quality}\nProgress: ${rounded}%`,
+                {
+                  parse_mode: 'HTML',
+                  ...Markup.inlineKeyboard([
+                    [Markup.button.callback('❌ Cancel Download', 'yt:cancel_dl')]
+                  ])
+                }
               )
             ).catch(() => {});
           }
@@ -163,6 +170,9 @@ class YouTubeHandler {
       const fileSize = FileManager.formatBytes(stats.size);
       const fileName = path.basename(finalPath);
       const downloadUrl = `${downloadBaseUrl}/${fileName}`;
+
+      // Save metadata (title) for YouTube video
+      this.saveMetadata(fileName, job.title, downloadsDir);
 
       // Send success message using HTML to preserve underscores
       const successMsg = [
@@ -205,6 +215,19 @@ class YouTubeHandler {
       session.state = 'IDLE';
       session.pendingYoutubeJob = null;
       session.abortController = null;
+    }
+  }
+
+  /**
+   * Save metadata for YouTube video
+   */
+  static saveMetadata(fileName, title, downloadsDir) {
+    const metaPath = path.join(downloadsDir, fileName.replace(/\.mp4$/, '.json'));
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify({ title }, null, 2), 'utf8');
+      Logger.info(`Metadata saved for: ${fileName}`);
+    } catch (err) {
+      Logger.warn(`Failed to save metadata for ${fileName}`, { error: err.message });
     }
   }
 

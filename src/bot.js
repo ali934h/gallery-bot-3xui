@@ -46,8 +46,8 @@ function e(text) {
   return String(text).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
 }
 
-function readMeta(zipName) {
-  const metaPath = path.join(DOWNLOADS_DIR, zipName.replace(/\.zip$/, '.json'));
+function readMeta(fileName) {
+  const metaPath = path.join(DOWNLOADS_DIR, fileName.replace(/\.(zip|mp4)$/, '.json'));
   try {
     if (fs.existsSync(metaPath)) return JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   } catch (_) {}
@@ -63,8 +63,8 @@ function saveMeta(zipName, urls) {
   }
 }
 
-function deleteMeta(zipName) {
-  const metaPath = path.join(DOWNLOADS_DIR, zipName.replace(/\.zip$/, '.json'));
+function deleteMeta(fileName) {
+  const metaPath = path.join(DOWNLOADS_DIR, fileName.replace(/\.(zip|mp4)$/, '.json'));
   if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
 }
 
@@ -134,9 +134,23 @@ class TelegramBot {
     if (files.length === 0) return { text: 'No downloaded files found.', keyboard: null };
     const totalSize = FileManager.formatBytes(files.reduce((sum, f) => sum + f.size, 0));
     const msg = `\u{1F5C2} Downloaded files: ${files.length} total (${totalSize})`;
-    const buttons = files.map((f, i) =>
-      [Markup.button.callback(`${f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}'} ${i + 1}. ${f.name.substring(0, 40)}`, `fi:${i}`)]
-    );
+    const buttons = files.map((f, i) => {
+      const meta = readMeta(f.name);
+      let displayName = f.name;
+      
+      // Show title instead of filename if metadata exists
+      if (meta && meta.title) {
+        displayName = meta.title.substring(0, 40);
+      } else if (meta && meta.urls) {
+        // Gallery: keep original behavior
+        displayName = f.name.substring(0, 40);
+      } else {
+        displayName = f.name.substring(0, 40);
+      }
+      
+      const icon = f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}';
+      return [Markup.button.callback(`${icon} ${i + 1}. ${displayName}`, `fi:${i}`)];
+    });
     buttons.push([Markup.button.callback('\u2699\uFE0F Manage All Files', 'manage_all')]);
     return { text: msg, keyboard: Markup.inlineKeyboard(buttons) };
   }
@@ -424,9 +438,16 @@ class TelegramBot {
       const downloadUrl = `${DOWNLOAD_BASE_URL}/${f.name}`;
       const meta = readMeta(f.name);
       const icon = f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}';
+      
+      // Display title if available (YouTube), otherwise filename
+      let displayName = f.name;
+      if (meta && meta.title) {
+        displayName = meta.title;
+      }
+      
       const msg = [
         `${icon} *File Details*`, '',
-        `Name: \`${e(f.name)}\``,
+        `Name: \`${e(displayName)}\``,
         `Size: ${e(size)}`,
         `Date: ${e(date)}`, '',
         'Link:', '```', e(downloadUrl), '```'
