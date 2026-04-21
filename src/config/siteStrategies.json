@@ -4,7 +4,7 @@
     "name": "EliteBabes",
     "useProxy": false,
     "images": {
-      "selector": "a.himage",
+      "selector": "a[href$='.jpg']",
       "attr": "href",
       "filterPatterns": []
     }
@@ -13,7 +13,7 @@
     "name": "DefineBabe",
     "useProxy": false,
     "images": {
-      "selector": "div.gallery-view-image a",
+      "selector": "a[href$='.jpg']",
       "attr": "href",
       "filterPatterns": []
     }
@@ -22,7 +22,7 @@
     "name": "Pornpics",
     "useProxy": true,
     "images": {
-      "selector": "a[href*='cdn'][href$='.jpg']",
+      "selector": "a[href$='.jpg']",
       "attr": "href",
       "filterPatterns": ["thumb", "_w400", "_w600", "masonry", "logo"]
     }
