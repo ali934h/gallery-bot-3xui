@@ -1,6 +1,6 @@
 # Gallery Downloader Bot — 3x-ui Edition
 
-Telegram bot for downloading gallery images **and YouTube videos**, integrated with **3x-ui** panel for proxy support.
+Telegram bot for downloading gallery images, integrated with **3x-ui** panel for proxy support.
 
 ## Features
 
@@ -9,13 +9,6 @@ Telegram bot for downloading gallery images **and YouTube videos**, integrated w
 - Automatic site detection with fallback strategies
 - Download images in parallel
 - Package into ZIP files with direct download links
-
-🎬 **YouTube Downloader**
-- Download YouTube videos up to 1080p
-- Quality selection with file size preview
-- Cookie authentication for blocked content
-- Direct download links (no compression)
-- Video + audio merged automatically
 
 ---
 
@@ -125,12 +118,10 @@ Set it to **Full (strict)**.
 Telegram → Cloudflare (public cert ✅) → Your Server (Origin Cert ✅)
 ```
 
-Telegram only talks to Cloudflare, which has a trusted public certificate. Cloudflare then connects to your server using the Origin Certificate.
-
 **4. SSL cert paths** (use the files you downloaded from Cloudflare Origin Server page):
 ```
-SSL_CERT = /path/to/cert.pem   (or .crt — the certificate file)
-SSL_KEY  = /path/to/key.pem    (or .key — the private key file)
+SSL_CERT = /path/to/cert.pem
+SSL_KEY  = /path/to/key.pem
 ```
 
 ---
@@ -142,7 +133,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/ali934h/gallery-bot-3xui/main/
 ```
 
 The installer will:
-- Install Node.js, PM2, yt-dlp, ffmpeg
+- Install Node.js, PM2
 - Clone the bot repository
 - Configure environment variables
 - Start the bot with PM2
@@ -171,47 +162,6 @@ You'll be asked for:
 - See `src/config/siteStrategies.json` for full list
 - Auto-detection works for similar gallery sites
 
-### YouTube Downloader
-
-1. Send a YouTube video URL
-   - `https://www.youtube.com/watch?v=...`
-   - `https://youtu.be/...`
-2. Choose quality (360p, 480p, 720p, or 1080p)
-3. Wait for download (progress updates every 5 seconds)
-4. Receive your download link
-
-**Note:** Videos include both video and audio tracks merged into MP4 format.
-
-#### YouTube Cookie Setup (Optional)
-
-If YouTube blocks downloads with "Sign in to confirm you're not a bot", set up cookies:
-
-**1. Get cookies.txt from browser:**
-
-**Chrome/Edge/Brave:**
-1. Install extension: [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
-2. Go to youtube.com and login
-3. Click extension icon
-4. Click "Export" → save `cookies.txt`
-
-**Firefox:**
-1. Install extension: [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
-2. Go to youtube.com and login
-3. Click extension icon
-4. Save `cookies.txt`
-
-**2. Upload to bot:**
-
-1. Send `/setcookie` command to bot
-2. Upload `cookies.txt` file as **Document** (not as photo)
-3. Bot confirms: "Cookie saved successfully!"
-
-**3. Test:**
-
-Send a YouTube URL and check if download works.
-
-**Remove cookies:** Use `/removecookie` command
-
 ---
 
 ## How Proxy Works
@@ -221,11 +171,11 @@ Each site strategy in `src/config/siteStrategies.json` has a `useProxy` flag:
 ```json
 {
   "example-site.com": {
-    "useProxy": true,    ← routes through Xray (3x-ui)
+    "useProxy": true,
     ...
   },
   "another-site.com": {
-    "useProxy": false,   ← direct connection
+    "useProxy": false,
     ...
   }
 }
@@ -233,21 +183,9 @@ Each site strategy in `src/config/siteStrategies.json` has a `useProxy` flag:
 
 When `useProxy: true`, the bot routes traffic through `socks5://user:pass@127.0.0.1:1080` — the `mixed` inbound you created in 3x-ui.
 
-**YouTube downloads:** Currently use direct connection (no proxy). You can modify `src/downloaders/ytdlpDownloader.js` to add proxy support if needed.
-
 ---
 
 ## Troubleshooting
-
-### YouTube: "Sign in to confirm you're not a bot"
-
-**Solution:** Upload cookies using `/setcookie` command (see YouTube Cookie Setup section above)
-
-### YouTube: "No suitable formats found"
-
-**Cause:** Video requires authentication or age verification
-
-**Solution:** Upload cookies using `/setcookie` command
 
 ### Check webhook status
 ```bash
@@ -266,12 +204,6 @@ curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"
 pm2 logs gallery-bot
 ```
 
-### Check yt-dlp
-```bash
-yt-dlp --version
-yt-dlp --update  # update to latest version
-```
-
 ---
 
 ## Bot Commands
@@ -281,8 +213,6 @@ yt-dlp --update  # update to latest version
 | `/start` | Start the bot and see features |
 | `/help` | Show detailed usage instructions |
 | `/files` | View and manage downloaded files |
-| `/setcookie` | Upload YouTube cookies.txt |
-| `/removecookie` | Remove stored cookies |
 | `/cancel` | Cancel current operation |
 
 ---
@@ -290,8 +220,8 @@ yt-dlp --update  # update to latest version
 ## File Management
 
 Use `/files` command in Telegram to:
-- View all downloaded files (ZIP + MP4)
-- See video titles (not just filenames)
+- View all downloaded ZIP files
+- See file sizes and dates
 - Download individual files
 - Delete files
 - Bulk delete all files
@@ -309,8 +239,6 @@ pm2 stop gallery-bot           # stop
 pm2 restart gallery-bot \      # restart with new env vars
   --update-env
 systemctl status x-ui          # check 3x-ui status
-yt-dlp --version               # check yt-dlp version
-yt-dlp --update                # update yt-dlp
 ```
 
 ---
@@ -319,7 +247,5 @@ yt-dlp --update                # update yt-dlp
 
 - Ubuntu 20.04+ or Debian 11+ (tested)
 - Node.js 18+ (auto-installed)
-- yt-dlp (auto-installed)
-- ffmpeg (auto-installed)
 - 3x-ui panel with mixed inbound
 - Valid SSL certificate
