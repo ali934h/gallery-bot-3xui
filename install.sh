@@ -23,40 +23,52 @@ ask()  { echo -e "${BLUE}[?]${NC} $1"; }
 
 INSTALL_DIR="/root/gallery-bot-3xui"
 REPO_URL="https://github.com/ali934h/gallery-bot-3xui.git"
+NGINX_CONF_FILE="/etc/nginx/conf.d/gallery-bot.conf"
 
 clear
 echo -e ""
-echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   Gallery Downloader Bot — 3x-ui Edition     ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${NC}"
+echo -e "${GREEN}\u2551   Gallery Downloader Bot \u2014 3x-ui Edition     \u2551${NC}"
+echo -e "${GREEN}\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d${NC}"
 echo -e ""
 
-# ── Root check ────────────────────────────────────────────────────────────────────────────
+# ── Root check ───────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
   err "This script must be run as root (sudo -i)"
 fi
 
-# ── Pre-flight ────────────────────────────────────────────────────────────────────────────
-echo -e "${YELLOW}═══════════════════════════════════════════════${NC}"
+# ── Pre-flight ───────────────────────────────────────────────
+echo -e "${YELLOW}\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550${NC}"
 echo -e "${YELLOW}  Pre-flight Check${NC}"
-echo -e "${YELLOW}═══════════════════════════════════════════════${NC}"
+echo -e "${YELLOW}\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550${NC}"
 echo ""
 echo -e "This installer assumes you have:"
-echo -e "  ✅ 3x-ui already installed and running"
-echo -e "  ✅ A 'mixed' inbound created in 3x-ui panel:"
+echo -e "  \u2705 3x-ui already installed and running"
+echo -e "  \u2705 A 'mixed' inbound created in 3x-ui panel:"
 echo -e "      Protocol  : mixed"
 echo -e "      Listen IP : 127.0.0.1"
 echo -e "      Port      : 1080"
 echo -e "      Password  : enabled (with username & password)"
 echo ""
-echo -e "  ✅ A separate domain for this bot (different from 3x-ui domain)"
-echo -e "  ✅ SSL certificate for the bot domain"
+echo -e "  \u2705 nginx installed on this server"
+echo -e "  \u2705 A separate domain for this bot (different from 3x-ui domain)"
+echo -e "  \u2705 SSL certificate for the bot domain"
 echo ""
+
+# Check nginx
+if ! command -v nginx &>/dev/null; then
+  warn "nginx not found. Installing..."
+  apt-get update -qq
+  apt-get install -y -qq nginx
+  log "nginx installed."
+else
+  log "nginx already installed: $(nginx -v 2>&1)"
+fi
 
 # Test proxy availability
 PROXY_AVAILABLE=false
 if ss -tlnp 2>/dev/null | grep -q '127.0.0.1:1080'; then
-  log "Proxy detected on 127.0.0.1:1080 ✓"
+  log "Proxy detected on 127.0.0.1:1080 \u2713"
   PROXY_AVAILABLE=true
 else
   warn "Proxy NOT detected on 127.0.0.1:1080"
@@ -67,7 +79,7 @@ else
   [[ ! "$CONTINUE_ANYWAY" =~ ^[Yy]$ ]] && { warn "Aborted."; exit 0; }
 fi
 
-# ── Collect configuration ─────────────────────────────────────────────────────────────────
+# ── Collect configuration ────────────────────────────────────
 echo ""
 echo -e "${YELLOW}Please answer the following questions:${NC}\n"
 
@@ -81,13 +93,16 @@ read -r WEBHOOK_DOMAIN
 
 if [[ ! "$WEBHOOK_DOMAIN" =~ ^https?:// ]]; then
   WEBHOOK_DOMAIN="https://${WEBHOOK_DOMAIN}"
-  log "Auto-added https:// → ${WEBHOOK_DOMAIN}"
+  log "Auto-added https:// \u2192 ${WEBHOOK_DOMAIN}"
 fi
 if [[ "$WEBHOOK_DOMAIN" =~ ^http:// ]]; then
   WEBHOOK_DOMAIN="${WEBHOOK_DOMAIN/http:/https:}"
   warn "Changed http:// to https:// (required for Telegram webhooks)"
 fi
 WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN%/}
+# Extract bare domain for nginx server_name
+BARE_DOMAIN=${WEBHOOK_DOMAIN#https://}
+BARE_DOMAIN=${BARE_DOMAIN%/}
 
 ask "SSL certificate path (e.g. /etc/letsencrypt/live/bot.example.com/fullchain.pem):"
 read -r SSL_CERT
@@ -96,6 +111,21 @@ read -r SSL_CERT
 ask "SSL key path (e.g. /etc/letsencrypt/live/bot.example.com/privkey.pem):"
 read -r SSL_KEY
 [[ -z "$SSL_KEY" ]] && err "SSL key path cannot be empty."
+
+ask "Internal HTTP port for Node.js (default: 3000, change if already in use):"
+read -r INPUT_PORT
+INTERNAL_PORT=${INPUT_PORT:-3000}
+# Validate port is a number in range
+if ! [[ "$INTERNAL_PORT" =~ ^[0-9]+$ ]] || (( INTERNAL_PORT < 1024 || INTERNAL_PORT > 65535 )); then
+  err "Invalid port. Must be a number between 1024 and 65535."
+fi
+# Check if port is already in use
+if ss -tlnp 2>/dev/null | grep -q ":${INTERNAL_PORT} "; then
+  warn "Port ${INTERNAL_PORT} appears to be in use already."
+  ask "Use it anyway? [y/N]:"
+  read -r PORT_OVERRIDE
+  [[ ! "$PORT_OVERRIDE" =~ ^[Yy]$ ]] && err "Choose a different port and re-run the installer."
+fi
 
 ask "Allowed Telegram user IDs (comma-separated, leave empty to allow everyone):"
 read -r ALLOWED_USERS
@@ -110,7 +140,7 @@ DOWNLOADS_DIR=${DOWNLOADS_DIR:-/root/gallery-downloads}
 
 DOWNLOAD_BASE_URL="${WEBHOOK_DOMAIN}/downloads"
 
-# ── Proxy config ──────────────────────────────────────────────────────────────────────────
+# ── Proxy config ─────────────────────────────────────────────
 echo ""
 echo -e "${YELLOW}Proxy Configuration (3x-ui mixed inbound)${NC}"
 echo ""
@@ -136,27 +166,29 @@ fi
 
 echo ""
 log "Configuration summary:"
-echo    "  Bot domain  : $WEBHOOK_DOMAIN"
-echo    "  SSL Cert    : $SSL_CERT"
-echo    "  SSL Key     : $SSL_KEY"
-echo    "  Downloads   : $DOWNLOADS_DIR"
-echo    "  Download URL: $DOWNLOAD_BASE_URL"
-echo    "  Concurrency : $DOWNLOAD_CONCURRENCY"
-echo    "  Allowed IDs : ${ALLOWED_USERS:-<everyone>}"
-echo    "  Proxy       : ${PROXY_URL:-disabled}"
+echo    "  Bot domain    : $WEBHOOK_DOMAIN"
+echo    "  Internal port : $INTERNAL_PORT"
+echo    "  SSL Cert      : $SSL_CERT"
+echo    "  SSL Key       : $SSL_KEY"
+echo    "  Downloads     : $DOWNLOADS_DIR"
+echo    "  Download URL  : $DOWNLOAD_BASE_URL"
+echo    "  Concurrency   : $DOWNLOAD_CONCURRENCY"
+echo    "  Allowed IDs   : ${ALLOWED_USERS:-<everyone>}"
+echo    "  Proxy         : ${PROXY_URL:-disabled}"
+echo    "  nginx conf    : $NGINX_CONF_FILE"
 echo ""
 ask "Proceed with installation? [Y/n]:"
 read -r CONFIRM
 [[ "$CONFIRM" =~ ^[Nn]$ ]] && { warn "Aborted."; exit 0; }
 
-# ── System dependencies ───────────────────────────────────────────────────────────────────
+# ── System dependencies ──────────────────────────────────────
 log "Updating package list..."
 apt-get update -qq
 
 log "Installing dependencies (curl, git, unzip)..."
 apt-get install -y -qq curl git unzip
 
-# ── Node.js ───────────────────────────────────────────────────────────────────────────────
+# ── Node.js ──────────────────────────────────────────────────
 if command -v node &>/dev/null; then
   log "Node.js already installed: $(node -v)"
 else
@@ -166,7 +198,7 @@ else
   log "Node.js installed: $(node -v)"
 fi
 
-# ── PM2 ───────────────────────────────────────────────────────────────────────────────────
+# ── PM2 ──────────────────────────────────────────────────────
 if command -v pm2 &>/dev/null; then
   log "PM2 already installed: $(pm2 -v)"
 else
@@ -175,7 +207,7 @@ else
   log "PM2 installed."
 fi
 
-# ── Clone / update repo ───────────────────────────────────────────────────────────────────
+# ── Clone / update repo ──────────────────────────────────────
 if [[ -d "$INSTALL_DIR/.git" ]]; then
   warn "Existing installation found. Updating..."
   cd "$INSTALL_DIR"
@@ -186,15 +218,15 @@ else
   cd "$INSTALL_DIR"
 fi
 
-# ── npm install ───────────────────────────────────────────────────────────────────────────
+# ── npm install ──────────────────────────────────────────────
 log "Installing npm packages..."
 npm install --silent
 
-# ── Downloads directory ───────────────────────────────────────────────────────────────────
+# ── Downloads directory ──────────────────────────────────────
 log "Creating downloads directory: $DOWNLOADS_DIR"
 mkdir -p "$DOWNLOADS_DIR"
 
-# ── Write .env ────────────────────────────────────────────────────────────────────────────
+# ── Write .env ───────────────────────────────────────────────
 log "Writing .env file..."
 cat > "$INSTALL_DIR/.env" << EOF
 # Telegram
@@ -206,15 +238,13 @@ NODE_ENV=production
 # Webhook — use a SEPARATE domain from 3x-ui!
 WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN}
 WEBHOOK_PATH=/webhook
-HTTPS_PORT=443
+
+# Internal HTTP port (nginx reverse proxy handles SSL on 443)
+PORT=${INTERNAL_PORT}
 
 # Downloads
 DOWNLOADS_DIR=${DOWNLOADS_DIR}
 DOWNLOAD_BASE_URL=${DOWNLOAD_BASE_URL}
-
-# SSL (for the bot domain)
-SSL_CERT=${SSL_CERT}
-SSL_KEY=${SSL_KEY}
 
 # Whitelist
 ALLOWED_USERS=${ALLOWED_USERS}
@@ -229,7 +259,75 @@ EOF
 chmod 600 "$INSTALL_DIR/.env"
 log ".env written and secured (chmod 600)."
 
-# ── Start / restart with PM2 ──────────────────────────────────────────────────────────────
+# ── nginx config (safe: only adds a new conf.d file) ─────────
+log "Writing nginx config: $NGINX_CONF_FILE"
+
+# Backup existing file if present
+if [[ -f "$NGINX_CONF_FILE" ]]; then
+  cp "$NGINX_CONF_FILE" "${NGINX_CONF_FILE}.bak.$(date +%s)"
+  warn "Existing nginx config backed up."
+fi
+
+cat > "$NGINX_CONF_FILE" << NGINXEOF
+# gallery-bot nginx config
+# Auto-generated by install.sh — safe to delete if bot is removed
+# Does NOT affect any other server blocks or nginx configs
+
+server {
+    listen 80;
+    server_name ${BARE_DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${BARE_DOMAIN};
+
+    ssl_certificate     ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # Webhook endpoint
+    location /webhook {
+        proxy_pass         http://127.0.0.1:${INTERNAL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+    }
+
+    # Downloads endpoint
+    location /downloads {
+        proxy_pass         http://127.0.0.1:${INTERNAL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+    }
+
+    # Health check
+    location /health {
+        proxy_pass         http://127.0.0.1:${INTERNAL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Host \$host;
+    }
+}
+NGINXCONF
+
+# Test nginx config before reloading
+nginx -t 2>/dev/null
+if [[ $? -ne 0 ]]; then
+  err "nginx config test failed! Check $NGINX_CONF_FILE manually."
+fi
+
+log "nginx config test passed. Reloading nginx..."
+nginx -s reload
+log "nginx reloaded successfully."
+
+# ── Start / restart with PM2 ─────────────────────────────────
 cd "$INSTALL_DIR"
 
 if pm2 list | grep -q "gallery-bot"; then
@@ -246,24 +344,29 @@ pm2 save
 log "Enabling PM2 on system startup..."
 pm2 startup systemd -u root --hp /root 2>/dev/null | tail -1 | bash 2>/dev/null || true
 
-# ── Done ──────────────────────────────────────────────────────────────────────────────────
+# ── Done ─────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Installation Complete!             ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
+echo -e "${GREEN}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${NC}"
+echo -e "${GREEN}\u2551           Installation Complete!             \u2551${NC}"
+echo -e "${GREEN}\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d${NC}"
 echo ""
-echo -e "  Bot URL     : ${WEBHOOK_DOMAIN}"
-echo -e "  Install dir : ${INSTALL_DIR}"
-echo -e "  Downloads   : ${DOWNLOADS_DIR}"
-echo -e "  Download URL: ${DOWNLOAD_BASE_URL}"
-echo -e "  Proxy       : ${PROXY_URL:-disabled}"
+echo -e "  Bot URL      : ${WEBHOOK_DOMAIN}"
+echo -e "  Install dir  : ${INSTALL_DIR}"
+echo -e "  Downloads    : ${DOWNLOADS_DIR}"
+echo -e "  Download URL : ${DOWNLOAD_BASE_URL}"
+echo -e "  Proxy        : ${PROXY_URL:-disabled}"
+echo -e "  Node port    : 127.0.0.1:${INTERNAL_PORT} (internal)"
+echo -e "  nginx conf   : ${NGINX_CONF_FILE}"
 echo ""
-echo -e "  Features:"
-echo -e "    🖼 Gallery downloader (multi-site support)"
+echo -e "  Architecture:"
+echo -e "    Internet \u2192 nginx:443 (SSL) \u2192 Node.js:${INTERNAL_PORT} (internal)"
+echo -e "    Other projects on nginx are NOT affected."
 echo ""
 echo -e "  Useful commands:"
-echo -e "    pm2 logs gallery-bot       # view live logs"
-echo -e "    pm2 restart gallery-bot    # restart bot"
-echo -e "    pm2 stop gallery-bot       # stop bot"
-echo -e "    systemctl status x-ui      # check 3x-ui status"
+echo -e "    pm2 logs gallery-bot        # view live logs"
+echo -e "    pm2 restart gallery-bot     # restart bot"
+echo -e "    pm2 stop gallery-bot        # stop bot"
+echo -e "    nginx -t                    # test nginx config"
+echo -e "    nginx -s reload             # reload nginx"
+echo -e "    systemctl status x-ui       # check 3x-ui status"
 echo ""
