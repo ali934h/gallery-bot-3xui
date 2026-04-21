@@ -11,15 +11,11 @@ const strategyEngine = require('./scrapers/strategyEngine');
 const JsdomScraper = require('./scrapers/jsdomScraper');
 const ImageDownloader = require('./downloaders/imageDownloader');
 const ZipCreator = require('./downloaders/zipCreator');
-const YouTubeHandler = require('./handlers/youtubeHandler');
 
 const STATE = {
   IDLE: 'idle',
   PROCESSING: 'processing',
   WAITING_NAME: 'waiting_name',
-  WAITING_YOUTUBE_QUALITY: 'waiting_youtube_quality',
-  DOWNLOADING_YOUTUBE: 'downloading_youtube',
-  WAITING_COOKIE_FILE: 'waiting_cookie_file'
 };
 
 const UPDATE_INTERVAL_MS = 5000;
@@ -30,7 +26,6 @@ const userSessions = new Map();
 const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(process.cwd(), 'downloads');
 const DOWNLOAD_BASE_URL = process.env.DOWNLOAD_BASE_URL || 'http://localhost:3000/downloads';
 const DOWNLOAD_CONCURRENCY = parseInt(process.env.DOWNLOAD_CONCURRENCY) || 5;
-const COOKIE_PATH = path.join(process.cwd(), 'cookies.txt');
 
 const ALLOWED_USERS = new Set(
   (process.env.ALLOWED_USERS || '')
@@ -47,7 +42,7 @@ function e(text) {
 }
 
 function readMeta(fileName) {
-  const metaPath = path.join(DOWNLOADS_DIR, fileName.replace(/\.(zip|mp4)$/, '.json'));
+  const metaPath = path.join(DOWNLOADS_DIR, fileName.replace(/\.zip$/, '.json'));
   try {
     if (fs.existsSync(metaPath)) return JSON.parse(fs.readFileSync(metaPath, 'utf8'));
   } catch (_) {}
@@ -64,7 +59,7 @@ function saveMeta(zipName, urls) {
 }
 
 function deleteMeta(fileName) {
-  const metaPath = path.join(DOWNLOADS_DIR, fileName.replace(/\.(zip|mp4)$/, '.json'));
+  const metaPath = path.join(DOWNLOADS_DIR, fileName.replace(/\.zip$/, '.json'));
   if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
 }
 
@@ -120,7 +115,7 @@ class TelegramBot {
   getDownloadedFiles() {
     if (!fs.existsSync(DOWNLOADS_DIR)) return [];
     return fs.readdirSync(DOWNLOADS_DIR)
-      .filter(f => f.endsWith('.zip') || f.endsWith('.mp4'))
+      .filter(f => f.endsWith('.zip'))
       .map(name => {
         const filePath = path.join(DOWNLOADS_DIR, name);
         const stats = fs.statSync(filePath);
@@ -135,21 +130,8 @@ class TelegramBot {
     const totalSize = FileManager.formatBytes(files.reduce((sum, f) => sum + f.size, 0));
     const msg = `\u{1F5C2} Downloaded files: ${files.length} total (${totalSize})`;
     const buttons = files.map((f, i) => {
-      const meta = readMeta(f.name);
-      let displayName = f.name;
-      
-      // Show title instead of filename if metadata exists
-      if (meta && meta.title) {
-        displayName = meta.title.substring(0, 40);
-      } else if (meta && meta.urls) {
-        // Gallery: keep original behavior
-        displayName = f.name.substring(0, 40);
-      } else {
-        displayName = f.name.substring(0, 40);
-      }
-      
-      const icon = f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}';
-      return [Markup.button.callback(`${icon} ${i + 1}. ${displayName}`, `fi:${i}`)];
+      const displayName = f.name.substring(0, 40);
+      return [Markup.button.callback(`\u{1F4C2} ${i + 1}. ${displayName}`, `fi:${i}`)];
     });
     buttons.push([Markup.button.callback('\u2699\uFE0F Manage All Files', 'manage_all')]);
     return { text: msg, keyboard: Markup.inlineKeyboard(buttons) };
@@ -179,8 +161,6 @@ class TelegramBot {
         { command: 'start', description: 'Start the bot' },
         { command: 'help', description: 'How to use this bot' },
         { command: 'files', description: 'View and manage downloaded files' },
-        { command: 'setcookie', description: 'Upload YouTube cookies for authentication' },
-        { command: 'removecookie', description: 'Remove stored YouTube cookies' },
         { command: 'cancel', description: 'Cancel current operation' }
       ]);
       Logger.info('Bot commands menu set successfully');
@@ -209,20 +189,12 @@ class TelegramBot {
       const session = this.getUserSession(ctx.from.id);
       session.state = STATE.IDLE;
       Logger.info(`User started bot: ${ctx.from.id}`);
-      
-      const cookieStatus = fs.existsSync(COOKIE_PATH) ? '\u2705 Cookie active' : '\u274c No cookie';
-      
       ctx.reply(
         'Welcome to Gallery Downloader Bot!\n\n' +
         '\ud83d\uddbc Gallery Downloader:\n' +
         'Send me one or more gallery URLs (one per line) and I will extract all images, download them, and create a ZIP file.\n\n' +
-        '\ud83c\udfac YouTube Downloader:\n' +
-        'Send me a YouTube video URL and choose your preferred quality (up to 1080p).\n\n' +
-        `\ud83c\udf6a Cookie status: ${cookieStatus}\n\n` +
         'Commands:\n' +
         '  /files - Manage downloaded files\n' +
-        '  /setcookie - Upload YouTube cookies\n' +
-        '  /removecookie - Remove cookies\n' +
         '  /help  - How to use\n\n' +
         'Supported gallery sites:\n' +
         strategyEngine.getSupportedDomains().map(d => `  - ${d}`).join('\n') + '\n\n' +
@@ -238,24 +210,8 @@ class TelegramBot {
         '2. Choose a name for the ZIP archive\n' +
         '3. Tap "Start Download" and wait\n' +
         '4. Receive your download link\n\n' +
-        '\ud83c\udfac *YouTube Downloader:*\n' +
-        '1. Send a YouTube video URL\n' +
-        '2. Choose quality (up to 1080p)\n' +
-        '3. Wait for download\n' +
-        '4. Receive your download link\n\n' +
-        '\ud83c\udf6a *Cookie Setup (if YouTube blocks):*\n' +
-        '1. Send /setcookie command\n' +
-        '2. Upload cookies.txt file as Document\n' +
-        '3. Try downloading again\n\n' +
-        '*How to get cookies.txt:*\n' +
-        '\u2022 Chrome: Install "Get cookies.txt LOCALLY"\n' +
-        '\u2022 Firefox: Install "cookies.txt" extension\n' +
-        '\u2022 Visit youtube.com and login\n' +
-        '\u2022 Click extension and export cookies\n\n' +
         'Commands:\n' +
         '  /files  - View and manage files\n' +
-        '  /setcookie - Upload cookies\n' +
-        '  /removecookie - Remove cookies\n' +
         '  /cancel - Cancel current operation\n\n' +
         'Supported gallery sites:\n' +
         strategyEngine.getSupportedDomains().map(d => `  - ${d}`).join('\n') + '\n\n' +
@@ -264,47 +220,13 @@ class TelegramBot {
       );
     });
 
-    this.bot.command('setcookie', (ctx) => {
-      const session = this.getUserSession(ctx.from.id);
-      session.state = STATE.WAITING_COOKIE_FILE;
-      
-      ctx.reply(
-        '\ud83c\udf6a Please send the cookies.txt file as a *Document*.\n\n' +
-        '\ud83d\udcd6 How to get cookies:\n\n' +
-        '*Chrome/Edge/Brave:*\n' +
-        '1\u20e3 Install extension: "Get cookies.txt LOCALLY"\n' +
-        '2\u20e3 Go to youtube.com and login\n' +
-        '3\u20e3 Click extension icon\n' +
-        '4\u20e3 Click "Export" and download file\n' +
-        '5\u20e3 Send it here as Document\n\n' +
-        '*Firefox:*\n' +
-        '1\u20e3 Install extension: "cookies.txt"\n' +
-        '2\u20e3 Go to youtube.com and login\n' +
-        '3\u20e3 Click extension icon\n' +
-        '4\u20e3 Save cookies.txt file\n' +
-        '5\u20e3 Send it here as Document',
-        { parse_mode: 'Markdown' }
-      );
-    });
-
-    this.bot.command('removecookie', (ctx) => {
-      if (fs.existsSync(COOKIE_PATH)) {
-        fs.unlinkSync(COOKIE_PATH);
-        Logger.info(`Cookie removed by user: ${ctx.from.id}`);
-        ctx.reply('\u2705 Cookie removed successfully.');
-      } else {
-        ctx.reply('\u274c No cookie found.');
-      }
-    });
-
     this.bot.command('cancel', (ctx) => {
       const session = this.getUserSession(ctx.from.id);
-      if (session.state === STATE.PROCESSING || session.state === STATE.DOWNLOADING_YOUTUBE) {
+      if (session.state === STATE.PROCESSING) {
         ctx.reply('A job is currently running. Please wait for it to finish.');
       } else {
         session.state = STATE.IDLE;
         session.pendingJob = null;
-        session.pendingYoutubeJob = null;
         ctx.reply('Cancelled. Ready for new URLs.');
       }
     });
@@ -312,83 +234,6 @@ class TelegramBot {
     this.bot.command('files', (ctx) => {
       const { text, keyboard } = this.buildFilesListMessage();
       keyboard ? ctx.reply(text, keyboard) : ctx.reply(text);
-    });
-
-    // Handle document uploads (cookies)
-    this.bot.on('document', async (ctx) => {
-      const session = this.getUserSession(ctx.from.id);
-      
-      if (session.state !== STATE.WAITING_COOKIE_FILE) {
-        return;
-      }
-      
-      const document = ctx.message.document;
-      
-      if (!document.file_name.endsWith('.txt')) {
-        await ctx.reply('\u274c Please send only .txt files.');
-        return;
-      }
-      
-      try {
-        const file = await ctx.telegram.getFile(document.file_id);
-        const fileUrl = `https://api.telegram.org/file/bot${ctx.telegram.token}/${file.file_path}`;
-        
-        const response = await fetch(fileUrl);
-        const content = await response.text();
-        
-        if (!content.includes('youtube.com') && !content.includes('google.com')) {
-          await ctx.reply('\u274c Invalid cookie file. Must contain YouTube/Google cookies.');
-          session.state = STATE.IDLE;
-          return;
-        }
-        
-        fs.writeFileSync(COOKIE_PATH, content, 'utf8');
-        Logger.info(`Cookie uploaded by user: ${ctx.from.id}`);
-        
-        await ctx.reply(
-          '\u2705 Cookie saved successfully!\n\n' +
-          'You can now send YouTube URLs to download videos.\n\n' +
-          'To remove cookies later, use /removecookie'
-        );
-        
-        session.state = STATE.IDLE;
-        
-      } catch (error) {
-        Logger.error('Cookie upload error', { error: error.message, user: ctx.from.id });
-        await ctx.reply(`\u274c Error saving cookie: ${error.message}`);
-        session.state = STATE.IDLE;
-      }
-    });
-
-    // YouTube handlers
-    this.bot.action(/^yt:fmt:(.+)$/, async (ctx) => {
-      const formatId = ctx.match[1];
-      const session = this.getUserSession(ctx.from.id);
-      await YouTubeHandler.handleQualitySelection(
-        ctx,
-        formatId,
-        session,
-        DOWNLOADS_DIR,
-        DOWNLOAD_BASE_URL,
-        this.retryWithBackoff.bind(this)
-      );
-    });
-
-    this.bot.action('yt:cancel', async (ctx) => {
-      const session = this.getUserSession(ctx.from.id);
-      await ctx.answerCbQuery('Cancelled');
-      session.state = STATE.IDLE;
-      session.pendingYoutubeJob = null;
-      await ctx.editMessageText('\u274c Cancelled. Ready for new URLs.');
-    });
-
-    this.bot.action('yt:cancel_dl', async (ctx) => {
-      const session = this.getUserSession(ctx.from.id);
-      await ctx.answerCbQuery('Cancelling...');
-      if (session.abortController) {
-        session.abortController.abort();
-        Logger.info(`User ${ctx.from.id} cancelled YouTube download`);
-      }
     });
 
     // Gallery handlers
@@ -437,17 +282,9 @@ class TelegramBot {
       const date = f.date.toISOString().slice(0, 16).replace('T', ' ');
       const downloadUrl = `${DOWNLOAD_BASE_URL}/${f.name}`;
       const meta = readMeta(f.name);
-      const icon = f.name.endsWith('.zip') ? '\u{1F4C2}' : '\u{1F3AC}';
-      
-      // Display title if available (YouTube), otherwise filename
-      let displayName = f.name;
-      if (meta && meta.title) {
-        displayName = meta.title;
-      }
-      
       const msg = [
-        `${icon} *File Details*`, '',
-        `Name: \`${e(displayName)}\``,
+        `\u{1F4C2} *File Details*`, '',
+        `Name: \`${e(f.name)}\``,
         `Size: ${e(size)}`,
         `Date: ${e(date)}`, '',
         'Link:', '```', e(downloadUrl), '```'
@@ -576,7 +413,6 @@ class TelegramBot {
       const session = this.getUserSession(ctx.from.id);
       const text = ctx.message.text.trim();
 
-      // Handle WAITING_NAME state
       if (session.state === STATE.WAITING_NAME) {
         const input = text;
         if (!VALID_NAME_REGEX.test(input)) {
@@ -599,34 +435,21 @@ class TelegramBot {
         return;
       }
 
-      // Prevent new requests if processing
-      if (session.state === STATE.PROCESSING || session.state === STATE.DOWNLOADING_YOUTUBE) {
+      if (session.state === STATE.PROCESSING) {
         ctx.reply('Already processing a job. Please wait until it finishes.');
         return;
       }
 
-      // Check if YouTube URL
-      if (YouTubeHandler.isYouTubeUrl(text)) {
-        await YouTubeHandler.handleYouTubeUrl(
-          ctx,
-          text,
-          session,
-          DOWNLOADS_DIR,
-          DOWNLOAD_BASE_URL,
-          this.retryWithBackoff.bind(this)
-        );
-        return;
-      }
-
-      // Otherwise treat as gallery URLs
       const lines = text
         .split('\n')
         .map(l => l.trim())
         .filter(l => l.startsWith('http'));
+
       if (lines.length === 0) {
-        ctx.reply('No valid URLs found.\n\nPlease send:\n  - Gallery URLs (one per line)\n  - YouTube video URL');
+        ctx.reply('No valid URLs found.\n\nPlease send gallery URLs (one per line).');
         return;
       }
+
       const defaultName = this.buildDefaultName(lines);
       session.pendingJob = { urls: lines, archiveName: defaultName };
       session.state = STATE.IDLE;
@@ -640,7 +463,6 @@ class TelegramBot {
       if (session) {
         session.state = STATE.IDLE;
         session.pendingJob = null;
-        session.pendingYoutubeJob = null;
         session.abortController = null;
       }
     });
@@ -764,9 +586,6 @@ class TelegramBot {
     Logger.info('Bot initialized successfully');
     if (ALLOWED_USERS.size > 0) {
       Logger.info(`Whitelist active: ${[...ALLOWED_USERS].join(', ')}`);
-    }
-    if (fs.existsSync(COOKIE_PATH)) {
-      Logger.info('YouTube cookies loaded from cookies.txt');
     }
   }
 
