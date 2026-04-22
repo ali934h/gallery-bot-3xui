@@ -1,5 +1,5 @@
 {
-  "name": "gallery-bot-3xui",
+  "name": "tg-gallery",
   "version": "1.2.0",
   "description": "Telegram Gallery Downloader Bot — integrated with 3x-ui & Xray (VLESS proxy support)",
   "main": "src/index.js",
