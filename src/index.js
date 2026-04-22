@@ -52,8 +52,8 @@ app.get('/health', (req, res) => {
 // Root endpoint
 app.get('/', (req, res) => {
   res.status(200).json({
-    service: 'Telegram Gallery Downloader Bot',
-    version: '1.0.0',
+    service: 'tg-gallery',
+    version: '1.2.0',
     status: 'running'
   });
 });
@@ -81,7 +81,7 @@ if (NODE_ENV === 'production') {
       const server = http.createServer(app);
 
       server.listen(PORT, '127.0.0.1', () => {
-        Logger.info(`HTTP server started in PRODUCTION mode on 127.0.0.1:${PORT}`);
+        Logger.info(`tg-gallery started in PRODUCTION mode on 127.0.0.1:${PORT}`);
         Logger.info(`Webhook URL: ${webhookUrl}`);
         Logger.info(`Downloads served at: ${WEBHOOK_DOMAIN}/downloads`);
         Logger.info('SSL is handled by nginx reverse proxy');
@@ -94,7 +94,7 @@ if (NODE_ENV === 'production') {
       });
     })
     .catch((error) => {
-      Logger.error('Failed to start bot in production mode', { error: error.message });
+      Logger.error('Failed to start tg-gallery in production mode', { error: error.message });
       process.exit(1);
     });
 
@@ -102,7 +102,7 @@ if (NODE_ENV === 'production') {
 } else {
   bot.startPolling()
     .then(() => {
-      Logger.info('Bot started in DEVELOPMENT mode with polling');
+      Logger.info('tg-gallery started in DEVELOPMENT mode with polling');
 
       const server = http.createServer(app);
       server.listen(PORT, () => {
@@ -112,7 +112,7 @@ if (NODE_ENV === 'production') {
       });
     })
     .catch((error) => {
-      Logger.error('Failed to start bot in development mode', { error: error.message });
+      Logger.error('Failed to start tg-gallery in development mode', { error: error.message });
       process.exit(1);
     });
 }
