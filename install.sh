@@ -54,6 +54,8 @@ echo -e "  ✅ nginx installed on this server"
 echo -e "  ✅ A separate domain for this bot (different from 3x-ui domain)"
 echo -e "  ✅ SSL certificate for the bot domain"
 echo ""
+echo -e "  ${YELLOW}Warning: Any previous tg-gallery installation will be fully removed.${NC}"
+echo ""
 
 # Check nginx
 if ! command -v nginx &>/dev/null; then
@@ -178,14 +180,38 @@ ask "Proceed with installation? [Y/n]:"
 read -r CONFIRM
 [[ "$CONFIRM" =~ ^[Nn]$ ]] && { warn "Aborted."; exit 0; }
 
-# ── System dependencies ──────────────────────────────────────
-log "Updating package list..."
+# ── [0] Cleanup previous installation ──────────────────────────
+echo ""
+log "[0/5] Cleaning up previous installation..."
+
+if command -v pm2 &>/dev/null; then
+  pm2 delete tg-gallery 2>/dev/null && warn "PM2 process 'tg-gallery' removed." || true
+  pm2 save --force 2>/dev/null || true
+fi
+
+if [[ -f "$NGINX_CONF_FILE" ]]; then
+  BACKUP_PATH="${NGINX_CONF_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$NGINX_CONF_FILE" "$BACKUP_PATH"
+  rm -f "$NGINX_CONF_FILE"
+  warn "nginx config backed up to: $BACKUP_PATH and removed."
+fi
+
+if [[ -d "$INSTALL_DIR" ]]; then
+  rm -rf "$INSTALL_DIR"
+  warn "Removed old install directory: $INSTALL_DIR"
+fi
+
+log "Cleanup complete."
+
+# ── [1] System dependencies ───────────────────────────────────
+log "[1/5] Updating package list..."
 apt-get update -qq
 
 log "Installing dependencies (curl, git, unzip)..."
 apt-get install -y -qq curl git unzip
 
-# ── Node.js ──────────────────────────────────────────────────
+# ── [2] Node.js ───────────────────────────────────────────
+log "[2/5] Checking Node.js..."
 if command -v node &>/dev/null; then
   log "Node.js already installed: $(node -v)"
 else
@@ -195,7 +221,6 @@ else
   log "Node.js installed: $(node -v)"
 fi
 
-# ── PM2 ──────────────────────────────────────────────────────
 if command -v pm2 &>/dev/null; then
   log "PM2 already installed: $(pm2 -v)"
 else
@@ -204,27 +229,19 @@ else
   log "PM2 installed."
 fi
 
-# ── Clone / update repo ──────────────────────────────────────
-if [[ -d "$INSTALL_DIR/.git" ]]; then
-  warn "Existing installation found. Updating..."
-  cd "$INSTALL_DIR"
-  git pull origin main --quiet
-else
-  log "Cloning repository to $INSTALL_DIR ..."
-  git clone "$REPO_URL" "$INSTALL_DIR" --quiet
-  cd "$INSTALL_DIR"
-fi
+# ── [3] Clone repo & npm install ─────────────────────────────
+log "[3/5] Cloning repository to $INSTALL_DIR ..."
+git clone "$REPO_URL" "$INSTALL_DIR" --quiet
+cd "$INSTALL_DIR"
 
-# ── npm install ──────────────────────────────────────────────
 log "Installing npm packages..."
 npm install --silent
 
-# ── Downloads directory ──────────────────────────────────────
 log "Creating downloads directory: $DOWNLOADS_DIR"
 mkdir -p "$DOWNLOADS_DIR"
 
-# ── Write .env ───────────────────────────────────────────────
-log "Writing .env file..."
+# ── [4] Write .env ──────────────────────────────────────────
+log "[4/5] Writing .env file..."
 cat > "$INSTALL_DIR/.env" << EOF
 # Telegram
 BOT_TOKEN=${BOT_TOKEN}
@@ -256,13 +273,8 @@ EOF
 chmod 600 "$INSTALL_DIR/.env"
 log ".env written and secured (chmod 600)."
 
-# ── nginx config ───────────────────────────────────────────────
-log "Writing nginx config: $NGINX_CONF_FILE"
-
-if [[ -f "$NGINX_CONF_FILE" ]]; then
-  cp "$NGINX_CONF_FILE" "${NGINX_CONF_FILE}.bak.$(date +%s)"
-  warn "Existing nginx config backed up."
-fi
+# ── [5] nginx config ─────────────────────────────────────────
+log "[5/5] Writing nginx config: $NGINX_CONF_FILE"
 
 printf 'server {\n' > "$NGINX_CONF_FILE"
 printf '    listen 80;\n' >> "$NGINX_CONF_FILE"
@@ -299,37 +311,24 @@ printf '        proxy_set_header   Host $host;\n' >> "$NGINX_CONF_FILE"
 printf '    }\n' >> "$NGINX_CONF_FILE"
 printf '}\n' >> "$NGINX_CONF_FILE"
 
-log "nginx config written."
-
 if ! nginx -t 2>/dev/null; then
   err "nginx config test failed! Check $NGINX_CONF_FILE manually."
 fi
 
-log "nginx config test passed. Reloading nginx..."
 nginx -s reload
-log "nginx reloaded successfully."
+log "nginx configured and reloaded."
 
-# ── Start / restart with PM2 ─────────────────────────────────
+# ── Start with PM2 ────────────────────────────────────────────
 cd "$INSTALL_DIR"
-
-if pm2 list | grep -q "tg-gallery"; then
-  log "Restarting existing PM2 process..."
-  pm2 restart tg-gallery --update-env
-else
-  log "Starting tg-gallery with PM2..."
-  pm2 start src/index.js --name tg-gallery
-fi
-
-log "Saving PM2 process list..."
+log "Starting tg-gallery with PM2..."
+pm2 start src/index.js --name tg-gallery
 pm2 save
-
-log "Enabling PM2 on system startup..."
 pm2 startup systemd -u root --hp /root 2>/dev/null | tail -1 | bash 2>/dev/null || true
 
 # ── Done ─────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           Installation Complete!             ║${NC}"
+echo -e "${GREEN}║         tg-gallery installed successfully!         ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Bot URL      : ${WEBHOOK_DOMAIN}"
