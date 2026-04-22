@@ -85,13 +85,21 @@ fi
 echo ""
 echo -e "${YELLOW}Please answer the following questions:${NC}\n"
 
-ask "Bot Token (from @BotFather):"
-read -r BOT_TOKEN
-[[ -z "$BOT_TOKEN" ]] && err "Bot token cannot be empty."
+# Bot Token
+while true; do
+  ask "Bot Token (from @BotFather):"
+  read -r BOT_TOKEN
+  [[ -n "$BOT_TOKEN" ]] && break
+  warn "Bot token cannot be empty. Please try again."
+done
 
-ask "Bot domain — MUST be different from 3x-ui domain (e.g. bot.example.com):"
-read -r WEBHOOK_DOMAIN
-[[ -z "$WEBHOOK_DOMAIN" ]] && err "Domain cannot be empty."
+# Webhook domain
+while true; do
+  ask "Bot domain — MUST be different from 3x-ui domain (e.g. bot.example.com):"
+  read -r WEBHOOK_DOMAIN
+  [[ -n "$WEBHOOK_DOMAIN" ]] && break
+  warn "Domain cannot be empty. Please try again."
+done
 
 if [[ ! "$WEBHOOK_DOMAIN" =~ ^https?:// ]]; then
   WEBHOOK_DOMAIN="https://${WEBHOOK_DOMAIN}"
@@ -105,34 +113,72 @@ WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN%/}
 BARE_DOMAIN=${WEBHOOK_DOMAIN#https://}
 BARE_DOMAIN=${BARE_DOMAIN%/}
 
-ask "SSL certificate path (e.g. /etc/letsencrypt/live/bot.example.com/fullchain.pem):"
-read -r SSL_CERT
-[[ -z "$SSL_CERT" ]] && err "SSL cert path cannot be empty."
+# SSL cert
+while true; do
+  ask "SSL certificate path (e.g. /etc/letsencrypt/live/bot.example.com/fullchain.pem):"
+  read -r SSL_CERT
+  if [[ -z "$SSL_CERT" ]]; then
+    warn "SSL cert path cannot be empty. Please try again."
+  elif [[ ! -f "$SSL_CERT" ]]; then
+    warn "File not found: $SSL_CERT — please check the path and try again."
+  else
+    break
+  fi
+done
 
-ask "SSL key path (e.g. /etc/letsencrypt/live/bot.example.com/privkey.pem):"
-read -r SSL_KEY
-[[ -z "$SSL_KEY" ]] && err "SSL key path cannot be empty."
+# SSL key
+while true; do
+  ask "SSL key path (e.g. /etc/letsencrypt/live/bot.example.com/privkey.pem):"
+  read -r SSL_KEY
+  if [[ -z "$SSL_KEY" ]]; then
+    warn "SSL key path cannot be empty. Please try again."
+  elif [[ ! -f "$SSL_KEY" ]]; then
+    warn "File not found: $SSL_KEY — please check the path and try again."
+  else
+    break
+  fi
+done
 
-ask "Internal HTTP port for Node.js (default: 3000, change if already in use):"
-read -r INPUT_PORT
-INTERNAL_PORT=${INPUT_PORT:-3000}
-if ! [[ "$INTERNAL_PORT" =~ ^[0-9]+$ ]] || (( INTERNAL_PORT < 1024 || INTERNAL_PORT > 65535 )); then
-  err "Invalid port. Must be a number between 1024 and 65535."
-fi
-if ss -tlnp 2>/dev/null | grep -q ":${INTERNAL_PORT} "; then
-  warn "Port ${INTERNAL_PORT} appears to be in use already."
-  ask "Use it anyway? [y/N]:"
-  read -r PORT_OVERRIDE
-  [[ ! "$PORT_OVERRIDE" =~ ^[Yy]$ ]] && err "Choose a different port and re-run the installer."
-fi
+# Internal port
+while true; do
+  ask "Internal HTTP port for Node.js (default: 3000, change if already in use):"
+  read -r INPUT_PORT
+  INTERNAL_PORT=${INPUT_PORT:-3000}
+  if ! [[ "$INTERNAL_PORT" =~ ^[0-9]+$ ]] || (( INTERNAL_PORT < 1024 || INTERNAL_PORT > 65535 )); then
+    warn "Invalid port. Must be a number between 1024 and 65535. Please try again."
+    continue
+  fi
+  RESERVED_PORTS=(80 443 1080 8080 8443)
+  IS_RESERVED=false
+  for p in "${RESERVED_PORTS[@]}"; do
+    [[ "$INTERNAL_PORT" -eq "$p" ]] && IS_RESERVED=true && break
+  done
+  if $IS_RESERVED; then
+    warn "Port $INTERNAL_PORT is reserved. Please choose a different port."
+    continue
+  fi
+  if ss -tlnp 2>/dev/null | grep -q ":${INTERNAL_PORT} "; then
+    warn "Port ${INTERNAL_PORT} is already in use. Please choose a different port."
+    continue
+  fi
+  break
+done
 
 ask "Allowed Telegram user IDs (comma-separated, leave empty to allow everyone):"
 read -r ALLOWED_USERS
 
-ask "Download concurrency (1-20, default: 5):"
-read -r DOWNLOAD_CONCURRENCY
-DOWNLOAD_CONCURRENCY=${DOWNLOAD_CONCURRENCY:-5}
+# Concurrency
+while true; do
+  ask "Download concurrency (1-20, default: 5):"
+  read -r DOWNLOAD_CONCURRENCY
+  DOWNLOAD_CONCURRENCY=${DOWNLOAD_CONCURRENCY:-5}
+  if [[ "$DOWNLOAD_CONCURRENCY" =~ ^[0-9]+$ ]] && (( DOWNLOAD_CONCURRENCY >= 1 && DOWNLOAD_CONCURRENCY <= 20 )); then
+    break
+  fi
+  warn "Concurrency must be a number between 1 and 20. Please try again."
+done
 
+# Downloads directory
 ask "Downloads directory (default: /root/tg-gallery-downloads):"
 read -r DOWNLOADS_DIR
 DOWNLOADS_DIR=${DOWNLOADS_DIR:-/root/tg-gallery-downloads}
@@ -148,21 +194,25 @@ ask "Did you enable 'Password' in the mixed inbound? [Y/n]:"
 read -r HAS_AUTH
 
 if [[ ! "$HAS_AUTH" =~ ^[Nn]$ ]]; then
-  ask "Proxy username (from 3x-ui inbound):"
-  read -r PROXY_USER
-  ask "Proxy password (from 3x-ui inbound):"
-  read -r PROXY_PASS
-  if [[ -n "$PROXY_USER" && -n "$PROXY_PASS" ]]; then
-    PROXY_URL="socks5://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080"
-  else
-    PROXY_URL="socks5://127.0.0.1:1080"
-    warn "Username or password empty — using without auth."
-  fi
+  while true; do
+    ask "Proxy username (from 3x-ui inbound):"
+    read -r PROXY_USER
+    [[ -n "$PROXY_USER" ]] && break
+    warn "Proxy username cannot be empty. Please try again."
+  done
+  while true; do
+    ask "Proxy password (from 3x-ui inbound):"
+    read -r PROXY_PASS
+    [[ -n "$PROXY_PASS" ]] && break
+    warn "Proxy password cannot be empty. Please try again."
+  done
+  PROXY_URL="socks5://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080"
 else
   PROXY_URL="socks5://127.0.0.1:1080"
   log "Using proxy without authentication."
 fi
 
+# ── Configuration summary & confirm ──────────────────────────
 echo ""
 log "Configuration summary:"
 echo    "  Bot domain    : $WEBHOOK_DOMAIN"
@@ -180,9 +230,9 @@ ask "Proceed with installation? [Y/n]:"
 read -r CONFIRM
 [[ "$CONFIRM" =~ ^[Nn]$ ]] && { warn "Aborted."; exit 0; }
 
-# ── [0] Cleanup previous installation ──────────────────────────
+# ── [0] Cleanup previous installation ────────────────────────
 echo ""
-log "[0/5] Cleaning up previous installation..."
+log "[0/6] Cleaning up previous installation..."
 
 if command -v pm2 &>/dev/null; then
   pm2 delete tg-gallery 2>/dev/null && warn "PM2 process 'tg-gallery' removed." || true
@@ -204,14 +254,14 @@ fi
 log "Cleanup complete."
 
 # ── [1] System dependencies ───────────────────────────────────
-log "[1/5] Updating package list..."
+log "[1/6] Updating package list..."
 apt-get update -qq
 
 log "Installing dependencies (curl, git, unzip)..."
 apt-get install -y -qq curl git unzip
 
-# ── [2] Node.js ───────────────────────────────────────────
-log "[2/5] Checking Node.js..."
+# ── [2] Node.js & PM2 ────────────────────────────────────────
+log "[2/6] Checking Node.js..."
 if command -v node &>/dev/null; then
   log "Node.js already installed: $(node -v)"
 else
@@ -229,19 +279,32 @@ else
   log "PM2 installed."
 fi
 
+log "Installing pm2-logrotate..."
+pm2 install pm2-logrotate --silent 2>/dev/null || true
+pm2 set pm2-logrotate:max_size 10M 2>/dev/null || true
+pm2 set pm2-logrotate:retain 7 2>/dev/null || true
+log "pm2-logrotate configured."
+
 # ── [3] Clone repo & npm install ─────────────────────────────
-log "[3/5] Cloning repository to $INSTALL_DIR ..."
+log "[3/6] Cloning repository to $INSTALL_DIR ..."
 git clone "$REPO_URL" "$INSTALL_DIR" --quiet
 cd "$INSTALL_DIR"
 
 log "Installing npm packages..."
 npm install --silent
 
+log "Creating logs directory..."
+mkdir -p "$INSTALL_DIR/logs"
+
 log "Creating downloads directory: $DOWNLOADS_DIR"
 mkdir -p "$DOWNLOADS_DIR"
 
-# ── [4] Write .env ──────────────────────────────────────────
-log "[4/5] Writing .env file..."
+log "Setting directory permissions for nginx..."
+chmod 755 /root
+chmod -R 755 "$DOWNLOADS_DIR"
+
+# ── [4] Write .env ───────────────────────────────────────────
+log "[4/6] Writing .env file..."
 cat > "$INSTALL_DIR/.env" << EOF
 # Telegram
 BOT_TOKEN=${BOT_TOKEN}
@@ -274,42 +337,46 @@ chmod 600 "$INSTALL_DIR/.env"
 log ".env written and secured (chmod 600)."
 
 # ── [5] nginx config ─────────────────────────────────────────
-log "[5/5] Writing nginx config: $NGINX_CONF_FILE"
+log "[5/6] Writing nginx config: $NGINX_CONF_FILE"
 
-printf 'server {\n' > "$NGINX_CONF_FILE"
-printf '    listen 80;\n' >> "$NGINX_CONF_FILE"
-printf '    server_name %s;\n' "$BARE_DOMAIN" >> "$NGINX_CONF_FILE"
-printf '    return 301 https://$host$request_uri;\n' >> "$NGINX_CONF_FILE"
-printf '}\n\n' >> "$NGINX_CONF_FILE"
-printf 'server {\n' >> "$NGINX_CONF_FILE"
-printf '    listen 443 ssl;\n' >> "$NGINX_CONF_FILE"
-printf '    server_name %s;\n\n' "$BARE_DOMAIN" >> "$NGINX_CONF_FILE"
-printf '    ssl_certificate     %s;\n' "$SSL_CERT" >> "$NGINX_CONF_FILE"
-printf '    ssl_certificate_key %s;\n' "$SSL_KEY" >> "$NGINX_CONF_FILE"
-printf '    ssl_protocols       TLSv1.2 TLSv1.3;\n' >> "$NGINX_CONF_FILE"
-printf '    ssl_ciphers         HIGH:!aNULL:!MD5;\n\n' >> "$NGINX_CONF_FILE"
-printf '    location /webhook {\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_pass         http://127.0.0.1:%s;\n' "$INTERNAL_PORT" >> "$NGINX_CONF_FILE"
-printf '        proxy_http_version 1.1;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   Host $host;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   X-Real-IP $remote_addr;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   X-Forwarded-Proto $scheme;\n' >> "$NGINX_CONF_FILE"
-printf '    }\n\n' >> "$NGINX_CONF_FILE"
-printf '    location /downloads {\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_pass         http://127.0.0.1:%s;\n' "$INTERNAL_PORT" >> "$NGINX_CONF_FILE"
-printf '        proxy_http_version 1.1;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   Host $host;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   X-Real-IP $remote_addr;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   X-Forwarded-Proto $scheme;\n' >> "$NGINX_CONF_FILE"
-printf '    }\n\n' >> "$NGINX_CONF_FILE"
-printf '    location /health {\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_pass         http://127.0.0.1:%s;\n' "$INTERNAL_PORT" >> "$NGINX_CONF_FILE"
-printf '        proxy_http_version 1.1;\n' >> "$NGINX_CONF_FILE"
-printf '        proxy_set_header   Host $host;\n' >> "$NGINX_CONF_FILE"
-printf '    }\n' >> "$NGINX_CONF_FILE"
-printf '}\n' >> "$NGINX_CONF_FILE"
+cat > "$NGINX_CONF_FILE" << NGINXEOF
+server {
+    listen 80;
+    server_name ${BARE_DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${BARE_DOMAIN};
+
+    ssl_certificate     ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    location /webhook {
+        proxy_pass         http://127.0.0.1:${INTERNAL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Host \$host;
+        proxy_set_header   X-Real-IP \$remote_addr;
+        proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto \$scheme;
+    }
+
+    location /downloads/ {
+        alias ${DOWNLOADS_DIR}/;
+        add_header Content-Disposition "attachment";
+        autoindex off;
+    }
+
+    location /health {
+        proxy_pass         http://127.0.0.1:${INTERNAL_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Host \$host;
+    }
+}
+NGINXEOF
 
 if ! nginx -t 2>/dev/null; then
   err "nginx config test failed! Check $NGINX_CONF_FILE manually."
@@ -318,10 +385,10 @@ fi
 nginx -s reload
 log "nginx configured and reloaded."
 
-# ── Start with PM2 ────────────────────────────────────────────
+# ── [6] Start with PM2 ───────────────────────────────────────
 cd "$INSTALL_DIR"
-log "Starting tg-gallery with PM2..."
-pm2 start src/index.js --name tg-gallery
+log "[6/6] Starting tg-gallery with PM2..."
+pm2 start src/index.js --name tg-gallery --log "$INSTALL_DIR/logs/app.log"
 pm2 save
 pm2 startup systemd -u root --hp /root 2>/dev/null | tail -1 | bash 2>/dev/null || true
 
@@ -340,13 +407,16 @@ echo -e "  Node port    : 127.0.0.1:${INTERNAL_PORT} (internal)"
 echo -e "  nginx conf   : ${NGINX_CONF_FILE}"
 echo ""
 echo -e "  Architecture:"
-echo -e "    Internet → nginx:443 (SSL) → tg-gallery:${INTERNAL_PORT} (internal)"
+echo -e "    Internet → nginx:443 (SSL) → Node.js:${INTERNAL_PORT} (webhook/health)"
+echo -e "    Internet → nginx:443 (SSL) → disk (downloads served directly)"
 echo -e "    Other projects on nginx are NOT affected."
 echo ""
 echo -e "  Useful commands:"
 echo -e "    pm2 logs tg-gallery         # view live logs"
 echo -e "    pm2 restart tg-gallery      # restart bot"
 echo -e "    pm2 stop tg-gallery         # stop bot"
+echo -e "    bash update.sh             # update to latest version"
+echo -e "    bash uninstall.sh          # remove completely"
 echo -e "    nginx -t                    # test nginx config"
 echo -e "    nginx -s reload             # reload nginx"
 echo -e "    systemctl status x-ui       # check 3x-ui status"
