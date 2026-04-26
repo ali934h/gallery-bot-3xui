@@ -1,10 +1,12 @@
 /**
- * Strategy Engine
+ * Strategy engine — loads site-specific scraping rules from JSON, looks up by
+ * domain, and provides a fallback search across all known strategies.
  */
 
-const fs = require('fs').promises;
-const path = require('path');
-const Logger = require('../utils/logger');
+const fs = require("fs").promises;
+const path = require("path");
+const config = require("../config");
+const logger = require("../logger");
 
 class StrategyEngine {
   constructor() {
@@ -12,75 +14,59 @@ class StrategyEngine {
     this.loaded = false;
   }
 
-  async loadStrategies() {
+  async load() {
+    const configPath = path.join(__dirname, "../config/siteStrategies.json");
+    const raw = await fs.readFile(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    delete parsed._comment;
+    delete parsed._structure;
+    this.strategies = parsed;
+    this.loaded = true;
+    logger.info(`Loaded ${Object.keys(this.strategies).length} site strategies`);
+  }
+
+  ensureLoaded() {
+    if (!this.loaded) throw new Error("Strategies not loaded");
+  }
+
+  getDomain(url) {
+    return new URL(url).hostname.replace(/^www\./, "");
+  }
+
+  get(url) {
+    this.ensureLoaded();
     try {
-      const configPath = path.join(__dirname, '../config/siteStrategies.json');
-      const data = await fs.readFile(configPath, 'utf8');
-      this.strategies = JSON.parse(data);
-      delete this.strategies._comment;
-      delete this.strategies._structure;
-      this.loaded = true;
-      Logger.info(`Loaded ${Object.keys(this.strategies).length} site strategies`);
-    } catch (error) {
-      Logger.error('Failed to load site strategies', { error: error.message });
-      throw new Error('Could not load site strategies configuration');
+      return this.strategies[this.getDomain(url)] || null;
+    } catch {
+      return null;
     }
   }
 
-  extractDomain(url) {
-    try {
-      const urlObj = new URL(url);
-      return urlObj.hostname.replace('www.', '');
-    } catch (error) {
-      throw new Error('Invalid URL format');
-    }
-  }
-
-  getStrategy(url) {
-    if (!this.loaded) throw new Error('Strategies not loaded.');
-    const domain = this.extractDomain(url);
-    const strategy = this.strategies[domain];
-    if (!strategy) { Logger.warn(`No strategy found for domain: ${domain}`); return null; }
-    return strategy;
-  }
-
-  getAllStrategies() {
-    if (!this.loaded) throw new Error('Strategies not loaded.');
-    return this.strategies;
-  }
-
-  getSupportedDomains() {
-    if (!this.loaded) throw new Error('Strategies not loaded.');
+  supportedDomains() {
+    this.ensureLoaded();
     return Object.keys(this.strategies);
   }
 
-  isSupported(url) {
-    try {
-      const domain = this.extractDomain(url);
-      return domain in this.strategies;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  async findWorkingStrategy(url, JsdomScraper, minImages = 5) {
-    if (!this.loaded) throw new Error('Strategies not loaded.');
-    const domain = this.extractDomain(url);
-    Logger.info(`Testing strategies for unsupported domain: ${domain}`);
-    const strategyEntries = Object.entries(this.strategies);
-    for (const [, strategy] of strategyEntries) {
+  /**
+   * Try strategies until one returns >= minImages. Capped at config.fallbackStrategyLimit
+   * so we don't spend forever testing every strategy on a hostile site.
+   */
+  async findWorking(url, scraper, minImages = config.fallbackMinImages) {
+    this.ensureLoaded();
+    const entries = Object.entries(this.strategies).slice(
+      0,
+      config.fallbackStrategyLimit
+    );
+    for (const [, strategy] of entries) {
       try {
-        Logger.debug(`Testing ${strategy.name} strategy on ${domain}...`);
-        const images = await JsdomScraper.extractImages(url, strategy);
+        const images = await scraper.extractImages(url, strategy);
         if (images && images.length >= minImages) {
-          Logger.info(`Strategy '${strategy.name}' found ${images.length} images for ${domain}`);
           return { strategy, images };
         }
-      } catch (error) {
-        Logger.debug(`Strategy '${strategy.name}' failed: ${error.message}`);
+      } catch (err) {
+        logger.debug(`Fallback strategy '${strategy.name}' failed: ${err.message}`);
       }
     }
-    Logger.warn(`No working strategy found for ${domain}`);
     return null;
   }
 }

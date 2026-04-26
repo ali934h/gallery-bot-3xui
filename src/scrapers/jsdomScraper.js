@@ -1,136 +1,129 @@
 /**
- * JSDOM Scraper
- * Fast HTML parsing using jsdom for gallery image extraction
- * Uses CSS selectors from strategy configuration
+ * JSDOM-based scraper.
+ * Fetches HTML (optionally via a SOCKS5 proxy), parses with jsdom, applies a
+ * strategy's CSS selector + attribute to extract image URLs.
  */
 
-const axios = require('axios');
-const { JSDOM } = require('jsdom');
-const { SocksProxyAgent } = require('socks-proxy-agent');
-const Logger = require('../utils/logger');
+const axios = require("axios");
+const { JSDOM } = require("jsdom");
+const { SocksProxyAgent } = require("socks-proxy-agent");
+const config = require("../config");
+const logger = require("../logger");
 
-class JsdomScraper {
-  static resolveUrl(imgUrl, pageUrl) {
-    if (!imgUrl) return null;
-    if (imgUrl.startsWith('//')) return 'https:' + imgUrl;
-    if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) return imgUrl;
-    try { return new URL(imgUrl, pageUrl).href; } catch (_) { return null; }
-  }
+const DEFAULT_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.5",
+  "Accept-Encoding": "gzip, deflate, br",
+  Connection: "keep-alive",
+  "Upgrade-Insecure-Requests": "1",
+};
 
-  static sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  static getProxyAgent(useProxy = false) {
-    if (!useProxy) return null;
-    const proxyUrl = process.env.PROXY_URL;
-    if (!proxyUrl) {
-      Logger.warn('Strategy requires proxy but PROXY_URL is not set');
-      return null;
-    }
-    try {
-      if (proxyUrl.startsWith('socks://') || proxyUrl.startsWith('socks5://')) {
-        return new SocksProxyAgent(proxyUrl);
-      }
-      return null;
-    } catch (error) {
-      Logger.warn(`Invalid proxy URL: ${proxyUrl}`, { error: error.message });
-      return null;
-    }
-  }
-
-  static async fetchHTML(url, customHeaders = {}, useProxy = false, retries = 3) {
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive',
-      'Upgrade-Insecure-Requests': '1',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      ...customHeaders
-    };
-    const proxyAgent = this.getProxyAgent(useProxy);
-    const axiosConfig = {
-      headers,
-      timeout: 30000,
-      maxRedirects: 5,
-      validateStatus: (status) => status >= 200 && status < 300
-    };
-    if (proxyAgent) {
-      axiosConfig.httpAgent = proxyAgent;
-      axiosConfig.httpsAgent = proxyAgent;
-      Logger.debug(`Using proxy for: ${url}`);
-    }
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        Logger.debug(`Fetching HTML from: ${url} (attempt ${attempt}/${retries})`);
-        const response = await axios.get(url, axiosConfig);
-        Logger.debug(`HTML fetched successfully (${response.data.length} bytes)`);
-        return response.data;
-      } catch (error) {
-        const isRetryable =
-          error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' ||
-          error.code === 'ENOTFOUND' || error.message.includes('socket hang up') ||
-          (error.response && error.response.status >= 500);
-        if (isRetryable && attempt < retries) {
-          const delay = 2000 * attempt;
-          Logger.warn(`Request failed (${error.message}), retrying in ${delay}ms...`);
-          await this.sleep(delay);
-          continue;
-        }
-        Logger.error(`Failed to fetch HTML from: ${url}`, { error: error.message });
-        throw new Error(`HTTP request failed: ${error.message}`);
-      }
-    }
-  }
-
-  static filterImages(urls, filterPatterns = []) {
-    if (!filterPatterns || filterPatterns.length === 0) return urls;
-    const filtered = urls.filter(url => !filterPatterns.some(pattern => url.includes(pattern)));
-    Logger.debug(`Filtered ${urls.length - filtered.length} images (${filtered.length} remaining)`);
-    return filtered;
-  }
-
-  static async extractImages(url, strategy) {
-    try {
-      Logger.info(`Extracting images from gallery: ${url}`);
-      const customHeaders = strategy.headers || {};
-      const useProxy = strategy.useProxy || false;
-      const html = await this.fetchHTML(url, customHeaders, useProxy);
-      const dom = new JSDOM(html);
-      const document = dom.window.document;
-      const selector = strategy.images.selector;
-      const attr = strategy.images.attr;
-      const elements = document.querySelectorAll(selector);
-      Logger.debug(`Found ${elements.length} elements matching selector: ${selector}`);
-      const urls = [];
-      elements.forEach(element => {
-        const raw = element.getAttribute(attr);
-        const resolved = this.resolveUrl(raw, url);
-        if (resolved) urls.push(resolved);
-      });
-      const filteredUrls = this.filterImages(urls, strategy.images.filterPatterns);
-      const uniqueUrls = [...new Set(filteredUrls)];
-      Logger.info(`Extracted ${uniqueUrls.length} unique images from gallery`);
-      return uniqueUrls;
-    } catch (error) {
-      Logger.error(`Failed to extract images from: ${url}`, { error: error.message });
-      throw error;
-    }
-  }
-
-  static extractGalleryName(url) {
-    try {
-      const urlObj = new URL(url);
-      const pathParts = urlObj.pathname.split('/').filter(part => part);
-      const galleryName = pathParts[pathParts.length - 1] || 'gallery';
-      return galleryName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
-    } catch (error) {
-      return 'gallery';
-    }
+function resolveUrl(imgUrl, pageUrl) {
+  if (!imgUrl) return null;
+  if (imgUrl.startsWith("//")) return "https:" + imgUrl;
+  if (imgUrl.startsWith("http://") || imgUrl.startsWith("https://")) return imgUrl;
+  try {
+    return new URL(imgUrl, pageUrl).href;
+  } catch (_) {
+    return null;
   }
 }
 
-module.exports = JsdomScraper;
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function getProxyAgent(useProxy) {
+  if (!useProxy || !config.proxyUrl) return null;
+  const url = config.proxyUrl;
+  if (!(url.startsWith("socks://") || url.startsWith("socks5://"))) {
+    logger.warn(`Unsupported PROXY_URL scheme: ${url}`);
+    return null;
+  }
+  try {
+    return new SocksProxyAgent(url);
+  } catch (err) {
+    logger.warn("Failed to build SocksProxyAgent", { error: err.message });
+    return null;
+  }
+}
+
+async function fetchHTML(url, customHeaders = {}, useProxy = false) {
+  const headers = { ...DEFAULT_HEADERS, ...customHeaders };
+  const agent = getProxyAgent(useProxy);
+  const axiosConfig = {
+    headers,
+    timeout: config.scrapeTimeoutMs,
+    maxRedirects: 5,
+    validateStatus: (s) => s >= 200 && s < 300,
+  };
+  if (agent) {
+    axiosConfig.httpAgent = agent;
+    axiosConfig.httpsAgent = agent;
+  }
+
+  const retries = config.scrapeRetries;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      logger.debug(`Fetching HTML: ${url} (attempt ${attempt}/${retries})`);
+      const res = await axios.get(url, axiosConfig);
+      return res.data;
+    } catch (err) {
+      const code = err.code || "";
+      const isRetryable =
+        code === "ECONNRESET" ||
+        code === "ETIMEDOUT" ||
+        code === "ENOTFOUND" ||
+        (err.message && err.message.includes("socket hang up")) ||
+        (err.response && err.response.status >= 500);
+      if (isRetryable && attempt < retries) {
+        await sleep(2000 * attempt);
+        continue;
+      }
+      throw new Error(`HTTP request failed: ${err.message}`);
+    }
+  }
+  throw new Error("HTTP request failed after retries");
+}
+
+function filterImages(urls, patterns = []) {
+  if (!patterns || patterns.length === 0) return urls;
+  return urls.filter((u) => !patterns.some((p) => u.includes(p)));
+}
+
+async function extractImages(url, strategy) {
+  const headers = strategy.headers || {};
+  const useProxy = !!strategy.useProxy;
+  const html = await fetchHTML(url, headers, useProxy);
+  const dom = new JSDOM(html);
+  const document = dom.window.document;
+  const { selector, attr, filterPatterns } = strategy.images;
+  const els = document.querySelectorAll(selector);
+  const urls = [];
+  els.forEach((el) => {
+    const raw = el.getAttribute(attr);
+    const resolved = resolveUrl(raw, url);
+    if (resolved) urls.push(resolved);
+  });
+  const filtered = filterImages(urls, filterPatterns);
+  const unique = [...new Set(filtered)];
+  logger.debug(`Extracted ${unique.length} unique images from ${url}`);
+  return unique;
+}
+
+function extractGalleryName(url) {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split("/").filter(Boolean);
+    const last = parts[parts.length - 1] || "gallery";
+    const cleaned = last.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9-_]/g, "_");
+    return cleaned || "gallery";
+  } catch (_) {
+    return "gallery";
+  }
+}
+
+module.exports = { extractImages, extractGalleryName };
