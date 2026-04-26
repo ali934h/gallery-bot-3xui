@@ -50,8 +50,12 @@ download link.
 - Node.js 20+ (the installer installs it if missing).
 - nginx (the installer installs it if missing).
 - A bot token from [@BotFather](https://t.me/BotFather).
-- A public HTTPS domain pointed at the server, with a TLS certificate (e.g.
-  Let's Encrypt). Telegram only delivers webhooks over HTTPS.
+- A public HTTPS domain pointed at the server, with a TLS certificate.
+  Telegram only delivers webhooks over HTTPS.
+- A **Cloudflare Origin Certificate** is the recommended setup (matches the
+  sister repos): save the `.pem` and `.key` somewhere readable (e.g.
+  `/root/certs/`). Let's Encrypt also works — just point the installer at
+  whatever `fullchain.pem` / `privkey.pem` paths you have.
 - (Optional) A SOCKS5 proxy listening on `127.0.0.1` if you want to route some
   scraping traffic through it. The installer asks for it interactively.
 
