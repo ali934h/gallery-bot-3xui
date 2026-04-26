@@ -50,7 +50,7 @@ function build() {
     ctx
       .reply("An unexpected error occurred. Please try again or send /start to reset.")
       .catch(() => {});
-    sessions.reset(ctx.from?.id);
+    if (ctx.from?.id) sessions.reset(ctx.from.id);
   });
 
   return bot;

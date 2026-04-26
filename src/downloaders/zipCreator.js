@@ -24,16 +24,21 @@ async function createZip(sourceDir, archiveName, outputDir) {
     if (err.code !== "ENOENT") throw err;
   }
 
-  await new Promise((resolve, reject) => {
-    const output = fs.createWriteStream(tmpPath);
-    const archive = archiver("zip", { zlib: { level: 6 } });
-    output.on("close", resolve);
-    output.on("error", reject);
-    archive.on("error", reject);
-    archive.pipe(output);
-    archive.directory(sourceDir, false);
-    archive.finalize();
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      const output = fs.createWriteStream(tmpPath);
+      const archive = archiver("zip", { zlib: { level: 6 } });
+      output.on("close", resolve);
+      output.on("error", reject);
+      archive.on("error", reject);
+      archive.pipe(output);
+      archive.directory(sourceDir, false);
+      archive.finalize();
+    });
+  } catch (err) {
+    await fsp.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
 
   await fsp.rename(tmpPath, finalPath);
   const stats = await fsp.stat(finalPath);
