@@ -18,6 +18,7 @@ const imageDownloader = require("../downloaders/imageDownloader");
 const zipCreator = require("../downloaders/zipCreator");
 const { retryWithBackoff } = require("../utils/telegramRetry");
 const { escapeHtml } = require("../htmlEscape");
+const userbot = require("../userbot");
 
 const UPDATE_INTERVAL_MS = 5000;
 
@@ -32,6 +33,95 @@ function cancelKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback("❌ Cancel Download", "cancel_download")],
   ]);
+}
+
+async function uploadToChannel(ctx, info) {
+  const { zipPath, zipFileName, sourceUrls, imageCount, size } = info;
+  const sizeStr = fileManager.formatBytes(size);
+
+  if (size > config.telegramUpload.maxBytes) {
+    const limitGb = (config.telegramUpload.maxBytes / 1024 / 1024 / 1024).toFixed(1);
+    await retryWithBackoff(() =>
+      ctx.reply(
+        `⚠️ Archive size (${sizeStr}) exceeds Telegram's ${limitGb} GB upload limit. ` +
+          `Use the direct link above to download.`
+      )
+    ).catch(() => {});
+    return;
+  }
+
+  const status = await retryWithBackoff(() =>
+    ctx.reply(`📤 Uploading <b>${escapeHtml(zipFileName)}</b> to channel...`, {
+      parse_mode: "HTML",
+    })
+  ).catch(() => null);
+  const statusId = status ? status.message_id : null;
+
+  const sources = sourceUrls
+    .slice(0, 10)
+    .map((u) => `• ${escapeHtml(u)}`)
+    .join("\n");
+  const moreSources =
+    sourceUrls.length > 10 ? `\n…and ${sourceUrls.length - 10} more` : "";
+
+  const caption =
+    `<b>${escapeHtml(zipFileName)}</b>\n` +
+    `🖼 ${imageCount} images · 💾 ${sizeStr}\n\n` +
+    `<b>Sources:</b>\n${sources}${moreSources}`;
+
+  let lastEdit = 0;
+  try {
+    await userbot.uploadFile(zipPath, caption, {
+      parseMode: "html",
+      onProgress: (uploaded, total) => {
+        const now = Date.now();
+        if (!statusId || !total || now - lastEdit < 4000) return;
+        lastEdit = now;
+        const pct = ((Number(uploaded) / Number(total)) * 100).toFixed(1);
+        ctx.telegram
+          .editMessageText(
+            ctx.chat.id,
+            statusId,
+            null,
+            `📤 Uploading <b>${escapeHtml(zipFileName)}</b>... ${pct}%`,
+            { parse_mode: "HTML" }
+          )
+          .catch(() => {});
+      },
+    });
+    if (statusId) {
+      await retryWithBackoff(() =>
+        ctx.telegram.editMessageText(
+          ctx.chat.id,
+          statusId,
+          null,
+          `📤 Uploaded <b>${escapeHtml(zipFileName)}</b> to channel.`,
+          { parse_mode: "HTML" }
+        )
+      ).catch(() => {});
+    }
+  } catch (err) {
+    logger.error("Channel upload failed", {
+      error: err.message,
+      file: zipFileName,
+    });
+    if (statusId) {
+      await retryWithBackoff(() =>
+        ctx.telegram.editMessageText(
+          ctx.chat.id,
+          statusId,
+          null,
+          `⚠️ Channel upload failed: ${escapeHtml(err.message)}\nDirect link is still available above.`
+        )
+      ).catch(() => {});
+    } else {
+      await ctx
+        .reply(
+          `⚠️ Channel upload failed: ${err.message}\nDirect link is still available above.`
+        )
+        .catch(() => {});
+    }
+  }
 }
 
 async function processGalleries(ctx, urls, requestedName) {
@@ -208,6 +298,16 @@ async function processGalleries(ctx, urls, requestedName) {
     await retryWithBackoff(() =>
       ctx.telegram.deleteMessage(ctx.chat.id, msgId)
     ).catch(() => {});
+
+    if (userbot.isEnabled()) {
+      await uploadToChannel(ctx, {
+        zipPath,
+        zipFileName,
+        sourceUrls: urls,
+        imageCount: downloadResult.successImages,
+        size: stats.size,
+      });
+    }
 
     logger.info(`Job complete for user ${ctx.from.id}: ${zipFileName}`);
   } catch (err) {

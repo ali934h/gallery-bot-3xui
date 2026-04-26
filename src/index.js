@@ -11,10 +11,21 @@ const fileManager = require("./fileManager");
 const sessions = require("./sessions");
 const botModule = require("./bot");
 const server = require("./server");
+const userbot = require("./userbot");
 
 async function main() {
   await fileManager.ensureDir(config.downloadsDir);
   await fileManager.ensureDir(config.tempDir);
+
+  if (userbot.isEnabled()) {
+    try {
+      await userbot.ensureConnected();
+    } catch (err) {
+      logger.error("Userbot failed to connect; channel upload disabled.", {
+        error: err.message,
+      });
+    }
+  }
 
   const bot = botModule.build();
   const app = server.build(bot);
@@ -37,16 +48,18 @@ async function main() {
   );
 }
 
-process.on("SIGTERM", () => {
-  logger.info("SIGTERM received, shutting down gracefully");
+async function shutdown(signal) {
+  logger.info(`${signal} received, shutting down gracefully`);
   sessions.stopCleanup();
+  try {
+    await userbot.disconnect();
+  } catch (_e) {
+    // already logged
+  }
   process.exit(0);
-});
-process.on("SIGINT", () => {
-  logger.info("SIGINT received, shutting down gracefully");
-  sessions.stopCleanup();
-  process.exit(0);
-});
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("uncaughtException", (err) => {
   logger.error("Uncaught exception", { error: err.message, stack: err.stack });
   process.exit(1);

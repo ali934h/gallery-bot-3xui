@@ -46,6 +46,24 @@ function require_(name) {
   return v;
 }
 
+function bool(name, defaultValue) {
+  const raw = (process.env[name] || "").trim().toLowerCase();
+  if (raw === "") return defaultValue;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  throw new Error(`Invalid ${name}: '${raw}' (expected true/false)`);
+}
+
+function bigInt(name) {
+  const raw = (process.env[name] || "").trim();
+  if (raw === "") return null;
+  // Accept negative integers (Telegram channel IDs are negative bigints).
+  if (!/^-?\d+$/.test(raw)) {
+    throw new Error(`Invalid ${name}: '${raw}' (expected an integer)`);
+  }
+  return raw;
+}
+
 const NODE_ENV = process.env.NODE_ENV || "development";
 const isProduction = NODE_ENV === "production";
 
@@ -114,6 +132,45 @@ const config = Object.freeze({
   tempMaxAgeMs: num("TEMP_MAX_AGE_MS", 60 * 60 * 1000, { min: 60_000 }),
 
   logLevel: process.env.LOG_LEVEL || "info",
+
+  // Optional userbot upload — when enabled, every successfully built ZIP
+  // is also sent to a private Telegram channel via GramJS.
+  telegramUpload: (() => {
+    const enabled = bool("TELEGRAM_UPLOAD_ENABLED", false);
+    if (!enabled) {
+      return { enabled: false };
+    }
+    const apiId = num("TG_API_ID");
+    const apiHash = process.env.TG_API_HASH || "";
+    const session = process.env.TG_SESSION || "";
+    const channelId = bigInt("UPLOAD_CHANNEL_ID");
+    const maxBytes = num("TELEGRAM_UPLOAD_MAX_BYTES", 2 * 1024 * 1024 * 1024, {
+      min: 1024 * 1024,
+    });
+    const missing = [];
+    if (!Number.isFinite(apiId) || apiId <= 0) missing.push("TG_API_ID");
+    if (!apiHash) missing.push("TG_API_HASH");
+    if (!channelId) missing.push("UPLOAD_CHANNEL_ID");
+    if (!session) missing.push("TG_SESSION (run `node setup.js`)");
+    if (missing.length) {
+      // Don't crash — keep the bot running with upload disabled so users
+      // can fix the .env later without losing the link-only flow.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[config] TELEGRAM_UPLOAD_ENABLED=true but missing: ${missing.join(", ")}. ` +
+          `Channel upload disabled until these are filled in.`
+      );
+      return { enabled: false };
+    }
+    return {
+      enabled: true,
+      apiId,
+      apiHash,
+      session,
+      channelId,
+      maxBytes,
+    };
+  })(),
 });
 
 module.exports = config;
