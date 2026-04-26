@@ -43,6 +43,10 @@ download link.
 - Atomic ZIP writes — temporary `.tmp` file, renamed on completion; nginx
   refuses to serve `.tmp` and `.json` so half-written files and metadata
   sidecars are never exposed.
+- **Optional channel upload** — if you want every archive mirrored into a
+  private Telegram channel (up to 2 GB, or 4 GB on Premium), the installer
+  can log in a userbot via [GramJS](https://gram.js.org) and push each ZIP
+  there in addition to giving you the direct link.
 
 ## Requirements
 
@@ -72,10 +76,13 @@ The installer:
    port, allowed user IDs, and download/temp directories.
 3. Generates a random `WEBHOOK_SECRET` automatically.
 4. Asks (optionally) for a SOCKS5 proxy host/port and credentials.
-5. Clones the repo to `/root/tg-gallery`, runs `npm install`, writes
+5. Asks (optionally) whether to enable the [channel upload](#optional-channel-upload)
+   feature; if yes, prompts for `TG_API_ID`, `TG_API_HASH`, your phone, and the
+   target channel ID, then runs `node setup.js` to obtain a session string.
+6. Clones the repo to `/root/tg-gallery`, runs `npm install`, writes
    `/root/tg-gallery/.env` with `chmod 600`, drops an nginx vhost in
    `/etc/nginx/conf.d/tg-gallery.conf`, and starts the bot under PM2.
-6. Calls `setWebhook` so Telegram knows where to send updates.
+7. Calls `setWebhook` so Telegram knows where to send updates.
 
 After the script finishes, hit `https://<your-domain>/health` to confirm the
 bot is up.
@@ -107,6 +114,12 @@ The installer writes a `.env` from these knobs (all are also documented in
 | `PROXY_URL` | empty | `socks5://[user:pass@]host:port`. Used only by strategies that opt in via `useProxy: true`. |
 | `SESSION_IDLE_TTL_MS` | `86400000` | Idle session GC threshold. |
 | `LOG_LEVEL` | `info` | `error`, `warn`, `info`, or `debug`. |
+| `TELEGRAM_UPLOAD_ENABLED` | `false` | Set to `true` to also push every ZIP to a private Telegram channel. |
+| `TG_API_ID` / `TG_API_HASH` | empty | Userbot credentials from <https://my.telegram.org/apps>. Required when channel upload is enabled. |
+| `PHONE` | empty | Phone number used by `setup.js` to log in. Not used at runtime. |
+| `TG_SESSION` | empty | Userbot session string written by `setup.js` after a successful login. |
+| `UPLOAD_CHANNEL_ID` | empty | Numeric ID of the destination channel (e.g. `-1001234567890`). |
+| `TELEGRAM_UPLOAD_MAX_BYTES` | `2147483648` | Max archive size to upload. Anything bigger gets the link only. Bump to `4294967296` if your account has Telegram Premium. |
 
 After editing `.env`, run `pm2 restart tg-gallery --update-env`.
 
@@ -131,6 +144,42 @@ letters, digits, `-`, `_`, and `.`. `..` and path separators are rejected, and
 names that would create a hidden file (e.g. `.env`) are not accepted. A short
 random suffix is appended to every accepted name to keep download URLs
 unguessable.
+
+## Optional channel upload
+
+The bot is webhook-based, so it can only send files up to the Bot API's 50 MB
+limit. To handle larger archives, the bot can attach to a userbot session
+(your own Telegram account) via GramJS and forward each finished ZIP into a
+private channel that your account is a member of.
+
+The direct download link is always sent regardless. The channel upload is
+additional.
+
+1. During installation, answer `y` to *Enable channel upload?*. The installer
+   will ask for your `TG_API_ID`, `TG_API_HASH` (from <https://my.telegram.org/apps>),
+   phone number, and the numeric channel ID.
+2. The installer runs `node setup.js`, which sends an OTP to your Telegram
+   account. Enter the code (and 2FA password if you have one). The session
+   string is written to `.env` with mode `600`.
+3. The bot starts; the userbot connects on launch and waits for jobs.
+
+Finding the channel ID:
+
+- Easiest: forward any post from the channel to [@userinfobot](https://t.me/userinfobot) — it replies with the numeric ID.
+- Or open the channel in Telegram Web, look at the URL `…#-100123456789…`.
+
+If the archive is bigger than `TELEGRAM_UPLOAD_MAX_BYTES`, the bot tells you
+in chat and skips the upload but still sends the direct link.
+
+To re-login (e.g. after a Telegram session expiry):
+
+```bash
+cd /root/tg-gallery && node setup.js
+pm2 restart tg-gallery
+```
+
+To disable the channel upload after the fact, edit `.env`, set
+`TELEGRAM_UPLOAD_ENABLED=false`, and `pm2 restart tg-gallery --update-env`.
 
 ## Adding a site strategy
 
@@ -225,6 +274,7 @@ src/
 ├── server.js              Express (health + webhook callback)
 ├── bot.js                 Telegraf wiring + auth middleware
 ├── index.js               entry point
+├── userbot.js             optional GramJS uploader (channel upload)
 ├── handlers/
 │   ├── commands.js        /start, /help, /cancel, /files, text + rename
 │   ├── files.js           inline-keyboard browser

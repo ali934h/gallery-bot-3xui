@@ -110,6 +110,36 @@ if [[ "$ENABLE_PROXY" =~ ^[Yy]$ ]]; then
   fi
 fi
 
+# ── optional channel upload ──────────────────────────────────
+echo
+step "Optional channel upload"
+echo "  When enabled, every successfully built ZIP is also uploaded to a"
+echo "  private Telegram channel using your personal account (via GramJS)."
+echo "  This bypasses the 50 MB Bot API limit (up to 2 GB, or 4 GB on Premium)."
+read -r -p "Enable channel upload? [y/N]: " ENABLE_UPLOAD
+TELEGRAM_UPLOAD_ENABLED="false"
+TG_API_ID=""
+TG_API_HASH=""
+PHONE=""
+UPLOAD_CHANNEL_ID=""
+if [[ "$ENABLE_UPLOAD" =~ ^[Yy]$ ]]; then
+  TELEGRAM_UPLOAD_ENABLED="true"
+  echo
+  echo "  Get TG_API_ID / TG_API_HASH from https://my.telegram.org/apps"
+  while true; do
+    prompt TG_API_ID "TG_API_ID (numeric)"
+    [[ "$TG_API_ID" =~ ^[0-9]+$ ]] && break
+    warn "Must be a positive integer."
+  done
+  prompt TG_API_HASH "TG_API_HASH"
+  prompt PHONE "Phone number (e.g. +989123456789)"
+  echo
+  echo "  UPLOAD_CHANNEL_ID is the numeric ID of the private channel that ZIPs"
+  echo "  will be uploaded to (e.g. -1001234567890). Forward a channel post"
+  echo "  to @userinfobot to find it, or fill it in later by editing .env."
+  prompt_optional UPLOAD_CHANNEL_ID "UPLOAD_CHANNEL_ID (leave blank to fill later)" ""
+fi
+
 WEBHOOK_SECRET="$(openssl rand -hex 32)"
 DOWNLOAD_BASE_URL="https://${WEBHOOK_DOMAIN}/downloads"
 
@@ -126,6 +156,7 @@ cat <<EOF
   Concurrency    : ${DOWNLOAD_CONCURRENCY}
   Allowed users  : ${ALLOWED_USERS:-<everyone>}
   Proxy          : ${PROXY_URL:-<disabled>}
+  Channel upload : ${TELEGRAM_UPLOAD_ENABLED}$([[ "$TELEGRAM_UPLOAD_ENABLED" == "true" ]] && echo " (channel=${UPLOAD_CHANNEL_ID:-<unset>})")
   Webhook secret : (generated, ${#WEBHOOK_SECRET} chars)
   nginx conf     : ${NGINX_CONF_FILE}
   Install dir    : ${INSTALL_DIR}
@@ -205,6 +236,14 @@ DOWNLOAD_CONCURRENCY=${DOWNLOAD_CONCURRENCY}
 
 PROXY_URL=${PROXY_URL}
 
+TELEGRAM_UPLOAD_ENABLED=${TELEGRAM_UPLOAD_ENABLED}
+TG_API_ID=${TG_API_ID}
+TG_API_HASH=${TG_API_HASH}
+PHONE=${PHONE}
+TG_SESSION=
+UPLOAD_CHANNEL_ID=${UPLOAD_CHANNEL_ID}
+TELEGRAM_UPLOAD_MAX_BYTES=2147483648
+
 LOG_LEVEL=info
 EOF
 chmod 600 "$INSTALL_DIR/.env"
@@ -224,8 +263,19 @@ nginx -t >/dev/null
 nginx -s reload
 info "nginx reloaded"
 
+# ── userbot login (only if channel upload is enabled) ────────
+if [[ "$TELEGRAM_UPLOAD_ENABLED" == "true" ]]; then
+  step "Logging in to Telegram (userbot for channel upload)"
+  echo "  You'll be asked for the OTP Telegram sends to ${PHONE}."
+  echo "  If your account has 2FA enabled, you'll also be asked for the password."
+  echo
+  cd "$INSTALL_DIR" && node setup.js || err "Telegram login failed. Re-run: cd $INSTALL_DIR && node setup.js"
+  echo
+fi
+
 # ── start with PM2 ───────────────────────────────────────────
 step "Starting tg-gallery under PM2"
+cd "$INSTALL_DIR"
 pm2 start ecosystem.config.cjs
 pm2 save
 pm2 startup systemd -u root --hp /root 2>/dev/null | tail -1 | bash >/dev/null 2>&1 || true
@@ -241,9 +291,15 @@ echo "  Downloads     : ${DOWNLOADS_DIR}"
 echo "  Download URL  : ${DOWNLOAD_BASE_URL}"
 echo "  nginx conf    : ${NGINX_CONF_FILE}"
 echo
+if [[ "$TELEGRAM_UPLOAD_ENABLED" == "true" && -z "$UPLOAD_CHANNEL_ID" ]]; then
+  echo "${YELLOW}  ⚠ UPLOAD_CHANNEL_ID is empty. Channel uploads will fail until you set it.${NC}"
+  echo "    Edit ${INSTALL_DIR}/.env, then: pm2 restart tg-gallery"
+  echo
+fi
 echo "  Useful:"
 echo "    pm2 logs tg-gallery        # live logs"
 echo "    pm2 restart tg-gallery     # restart"
 echo "    bash $INSTALL_DIR/update.sh"
 echo "    bash $INSTALL_DIR/uninstall.sh"
+[[ "$TELEGRAM_UPLOAD_ENABLED" == "true" ]] && echo "    cd $INSTALL_DIR && node setup.js   # re-login to Telegram"
 echo

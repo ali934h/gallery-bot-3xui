@@ -18,8 +18,39 @@ const imageDownloader = require("../downloaders/imageDownloader");
 const zipCreator = require("../downloaders/zipCreator");
 const { retryWithBackoff } = require("../utils/telegramRetry");
 const { escapeHtml } = require("../htmlEscape");
+const userbot = require("../userbot");
 
 const UPDATE_INTERVAL_MS = 5000;
+// Telegram caps media captions at 1024 characters. Leave a small margin for
+// the trailing "…and N more" line and any HTML entity expansion in edge cases.
+const CAPTION_MAX_LEN = 1000;
+
+function buildChannelCaption(zipFileName, imageCount, sizeStr, sourceUrls) {
+  const header =
+    `<b>${escapeHtml(zipFileName)}</b>\n` +
+    `🖼 ${imageCount} images · 💾 ${sizeStr}\n\n` +
+    `<b>Sources:</b>\n`;
+
+  const lines = [];
+  let used = header.length;
+  let included = 0;
+  for (const url of sourceUrls) {
+    const line = `• ${escapeHtml(url)}\n`;
+    // Reserve ~30 chars for the trailing "…and N more" line.
+    if (used + line.length > CAPTION_MAX_LEN - 30) break;
+    lines.push(line);
+    used += line.length;
+    included++;
+  }
+
+  let caption = header + lines.join("");
+  if (included < sourceUrls.length) {
+    caption += `…and ${sourceUrls.length - included} more`;
+  }
+  return caption.length > CAPTION_MAX_LEN
+    ? caption.slice(0, CAPTION_MAX_LEN - 1) + "…"
+    : caption;
+}
 
 async function safeUpdateStatus(ctx, messageId, text, keyboard = null) {
   const opts = keyboard ? keyboard : {};
@@ -32,6 +63,86 @@ function cancelKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback("❌ Cancel Download", "cancel_download")],
   ]);
+}
+
+async function uploadToChannel(ctx, info) {
+  const { zipPath, zipFileName, sourceUrls, imageCount, size } = info;
+  const sizeStr = fileManager.formatBytes(size);
+
+  if (size > config.telegramUpload.maxBytes) {
+    const limitGb = (config.telegramUpload.maxBytes / 1024 / 1024 / 1024).toFixed(1);
+    await retryWithBackoff(() =>
+      ctx.reply(
+        `⚠️ Archive size (${sizeStr}) exceeds Telegram's ${limitGb} GB upload limit. ` +
+          `Use the direct link above to download.`
+      )
+    ).catch(() => {});
+    return;
+  }
+
+  const status = await retryWithBackoff(() =>
+    ctx.reply(`📤 Uploading <b>${escapeHtml(zipFileName)}</b> to channel...`, {
+      parse_mode: "HTML",
+    })
+  ).catch(() => null);
+  const statusId = status ? status.message_id : null;
+
+  const caption = buildChannelCaption(zipFileName, imageCount, sizeStr, sourceUrls);
+
+  let lastEdit = 0;
+  try {
+    await userbot.uploadFile(zipPath, caption, {
+      parseMode: "html",
+      onProgress: (uploaded, total) => {
+        const now = Date.now();
+        if (!statusId || !total || now - lastEdit < 4000) return;
+        lastEdit = now;
+        const pct = ((Number(uploaded) / Number(total)) * 100).toFixed(1);
+        ctx.telegram
+          .editMessageText(
+            ctx.chat.id,
+            statusId,
+            null,
+            `📤 Uploading <b>${escapeHtml(zipFileName)}</b>... ${pct}%`,
+            { parse_mode: "HTML" }
+          )
+          .catch(() => {});
+      },
+    });
+    if (statusId) {
+      await retryWithBackoff(() =>
+        ctx.telegram.editMessageText(
+          ctx.chat.id,
+          statusId,
+          null,
+          `📤 Uploaded <b>${escapeHtml(zipFileName)}</b> to channel.`,
+          { parse_mode: "HTML" }
+        )
+      ).catch(() => {});
+    }
+  } catch (err) {
+    logger.error("Channel upload failed", {
+      error: err.message,
+      file: zipFileName,
+    });
+    if (statusId) {
+      await retryWithBackoff(() =>
+        ctx.telegram.editMessageText(
+          ctx.chat.id,
+          statusId,
+          null,
+          `⚠️ Channel upload failed: ${escapeHtml(err.message)}\nDirect link is still available above.`,
+          { parse_mode: "HTML" }
+        )
+      ).catch(() => {});
+    } else {
+      await ctx
+        .reply(
+          `⚠️ Channel upload failed: ${err.message}\nDirect link is still available above.`
+        )
+        .catch(() => {});
+    }
+  }
 }
 
 async function processGalleries(ctx, urls, requestedName) {
@@ -208,6 +319,16 @@ async function processGalleries(ctx, urls, requestedName) {
     await retryWithBackoff(() =>
       ctx.telegram.deleteMessage(ctx.chat.id, msgId)
     ).catch(() => {});
+
+    if (userbot.isEnabled()) {
+      await uploadToChannel(ctx, {
+        zipPath,
+        zipFileName,
+        sourceUrls: urls,
+        imageCount: downloadResult.successImages,
+        size: stats.size,
+      });
+    }
 
     logger.info(`Job complete for user ${ctx.from.id}: ${zipFileName}`);
   } catch (err) {
